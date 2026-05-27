@@ -18,7 +18,7 @@ export interface ToolDef {
  * @param done        Called when user exits (Esc)
  */
 export function renderToolsSettings(
-  { tools, registered, enabled }: {
+  { tools, registered, enabled, onChange }: {
     tools: readonly ToolDef[];
     registered: string[];
     enabled: Set<string>;
