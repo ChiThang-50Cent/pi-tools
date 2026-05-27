@@ -469,19 +469,7 @@ pi-tools/
 
 ## Dependencies
 
-Pi bundles core packages. These are declared as `peerDependencies` and are **not bundled**:
-
-```json
-{
-  "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
-    "typebox": "*"
-  }
-}
-```
-
-No other npm runtime dependencies. SearXNG and Ollama are external services.
+No npm runtime dependencies. Pi bundles `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, and `typebox` at runtime — no need to declare them. SearXNG and Ollama are external services.
 
 ---
 
