@@ -16,6 +16,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AgentScope, AgentConfig } from "../../lib/agents.js";
 import { discoverAgents } from "../../lib/agents.js";
+import { loadConfig } from "../../lib/config.js";
 import { mapWithConcurrencyLimit } from "../../lib/concurrency.js";
 import { buildAgentDescription, buildPromptGuidelines } from "./descriptors.js";
 import { renderCall, renderResult } from "./render.js";
@@ -27,6 +28,20 @@ import type { SingleResult, SubagentDetails } from "./types.js";
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
+
+/** Max subagent nesting depth. Env var PI_MAX_SUBAGENT_DEPTH takes priority over tools.json maxSubagentDepth. Default 1. */
+function getMaxSubagentDepth(): number {
+  const env = parseInt(process.env.PI_MAX_SUBAGENT_DEPTH ?? "", 10);
+  if (Number.isFinite(env) && env >= 0) return env;
+  const config = loadConfig().maxSubagentDepth;
+  if (config !== undefined && Number.isFinite(config) && config >= 0) return config;
+  return 1;
+}
+
+function getCurrentSubagentDepth(): number {
+  const depth = parseInt(process.env.PI_SUBAGENT_DEPTH ?? "", 10);
+  return Number.isFinite(depth) && depth >= 0 ? depth : 0;
+}
 
 export default function (pi: ExtensionAPI) {
   // Discover agents at registration time (files are static, /reload picks up changes)
@@ -42,6 +57,21 @@ export default function (pi: ExtensionAPI) {
     parameters: SubagentParams,
 
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
+      const currentDepth = getCurrentSubagentDepth();
+      const maxDepth = getMaxSubagentDepth();
+      if (currentDepth >= maxDepth) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Subagent nesting limit reached (depth ${currentDepth}, max ${maxDepth}). Cannot spawn subagent from within a subagent.`,
+            },
+          ],
+          details: { mode: "single", agentScope: "user", projectAgentsDir: null, results: [] },
+          isError: true,
+        };
+      }
+
       const agentScope: AgentScope = params.agentScope ?? "user";
       const discovery = discoverAgents(ctx.cwd, agentScope);
       const agents = discovery.agents;

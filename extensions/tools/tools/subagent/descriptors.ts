@@ -60,6 +60,20 @@ export function buildPromptGuidelines(agents: AgentConfig[]): string[] {
     }
   }
 
+  const depth = (() => {
+    const d = parseInt(process.env.PI_SUBAGENT_DEPTH ?? "", 10);
+    return Number.isFinite(d) ? d : 0;
+  })();
+  const maxDepth = (() => {
+    const m = parseInt(process.env.PI_MAX_SUBAGENT_DEPTH ?? "", 10);
+    return Number.isFinite(m) && m >= 0 ? m : 1;
+  })();
+  if (depth >= maxDepth) {
+    guidelines.push(
+      `CRITICAL: You are at subagent depth ${depth}/${maxDepth}. You CANNOT spawn further subagents — the subagent tool will be blocked. Complete the task yourself using other available tools.`,
+    );
+  }
+
   guidelines.push(
     "Do NOT use subagent for trivial one-step tasks (reading a known file path, running a simple grep). Use read/bash/grep directly instead.",
     "Use parallel mode to run multiple independent investigations simultaneously.",

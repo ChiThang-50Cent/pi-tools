@@ -16,6 +16,8 @@ export interface ToolsConfig {
   allow?: string[];
   /** Denylist: tools to exclude when allow is empty/not set */
   deny?: string[];
+  /** Max subagent nesting depth. Default 1 = only root pi can spawn subagents. Overridable via PI_MAX_SUBAGENT_DEPTH env var. */
+  maxSubagentDepth?: number;
 }
 
 export function loadConfig(): ToolsConfig {

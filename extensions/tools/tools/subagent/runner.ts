@@ -104,10 +104,13 @@ export async function runSingleAgent(
 
     const exitCode = await new Promise<number>((resolve) => {
       const invocation = getPiInvocation(args);
+      const parentDepth = parseInt(process.env.PI_SUBAGENT_DEPTH ?? "", 10);
+      const childDepth = (Number.isFinite(parentDepth) ? parentDepth : 0) + 1;
       const proc = spawn(invocation.command, invocation.args, {
         cwd: cwd ?? defaultCwd,
         shell: false,
         stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, PI_SUBAGENT_DEPTH: String(childDepth) },
       });
       let buffer = "";
 
