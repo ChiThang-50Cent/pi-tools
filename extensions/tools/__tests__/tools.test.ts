@@ -7,9 +7,9 @@ vi.stubGlobal("fetch", mockFetch);
 // Mock AbortSignal.timeout (not available in all test environments)
 vi.stubGlobal("AbortSignal", {
   ...AbortSignal,
-  timeout: (ms: number) => {
+  timeout: (_ms: number) => {
     const controller = new AbortController();
-    setTimeout(() => controller.abort(), ms);
+    // Don't actually timeout in tests
     return controller.signal;
   },
   any: (signals: AbortSignal[]) => {
@@ -33,7 +33,7 @@ vi.mock("@earendil-works/pi-tui", () => ({
 }));
 
 import { contentStore } from "../lib/store.js";
-import { searchSearXNG, type SearXNGResult } from "../lib/search.js";
+import { searchSearXNG, type SearXNGResult, _resetSearchState } from "../lib/search.js";
 import { fetchPageContent, fetchGitHub, stripHtml, MAX_INLINE_CONTENT } from "../lib/fetch.js";
 
 // ─── Helper: mock SearXNG response ───
@@ -69,6 +69,7 @@ function mockGitHubApiResponse(data: any) {
 describe("searchSearXNG", () => {
   beforeEach(() => {
     mockFetch.mockReset();
+    _resetSearchState();
   });
 
   it("returns results from SearXNG", async () => {
