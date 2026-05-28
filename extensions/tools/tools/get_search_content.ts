@@ -1,5 +1,6 @@
 // ─── get_search_content ───── Retrieve stored content by responseId ─────
 import { Type } from "typebox";
+import { Text } from "@earendil-works/pi-tui";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { contentStore } from "../lib/store.js";
 
@@ -50,6 +51,44 @@ export function registerGetSearchContent(pi: ExtensionAPI): void {
         return { content: [{ type: "text", text: `### ${u.title}\n${u.url}\n\n${u.content}` }], details: { url: u.url } };
       }
       return { content: [{ type: "text", text: urls.map((u) => `### ${u.title}\n${u.url}\n\n${u.content}`).join("\n\n---\n\n") }], details: { urlCount: urls.length } };
+    },
+
+    renderCall(args, theme) {
+      const id = typeof args.responseId === "string" ? args.responseId.slice(0, 16) : "?";
+      let text = theme.fg("toolTitle", theme.bold("get_content ")) + theme.fg("accent", id);
+      if (args.query) text += theme.fg("dim", ` query:"${String(args.query).slice(0, 30)}"`);
+      if (typeof args.urlIndex === "number") text += theme.fg("dim", ` [${args.urlIndex}]`);
+      if (typeof args.queryIndex === "number") text += theme.fg("dim", ` [${args.queryIndex}]`);
+      return new Text(text, 0, 0);
+    },
+
+    renderResult(result, { expanded, isPartial }, theme) {
+      if (isPartial) return new Text(theme.fg("warning", "Loading..."), 0, 0);
+
+      const details = result.details as { error?: string; queryCount?: number; urlCount?: number; query?: string; url?: string } | undefined;
+      if (details?.error) return new Text(theme.fg("error", `Error: ${details.error}`), 0, 0);
+
+      const content = result.content[0];
+      const text = content?.type === "text" ? content.text : "";
+      const lineCount = text.split("\n").length;
+      const sizeKB = (Buffer.byteLength(text, "utf8") / 1024).toFixed(1);
+
+      let summary = "";
+      if (details?.query) summary = theme.fg("accent", details.query);
+      else if (details?.url) summary = theme.fg("accent", details.url);
+      else if (details?.queryCount) summary = theme.fg("success", `${details.queryCount} queries`);
+      else if (details?.urlCount) summary = theme.fg("success", `${details.urlCount} URLs`);
+      else summary = theme.fg("success", `${lineCount} lines`);
+
+      let display = summary + theme.fg("dim", ` (${sizeKB}KB)`);
+
+      if (expanded) {
+        const preview = text.split("\n").slice(0, 20).join("\n");
+        display += `\n${theme.fg("toolOutput", preview)}`;
+        if (lineCount > 20) display += `\n${theme.fg("muted", `... ${lineCount - 20} more lines`)}`;
+      }
+
+      return new Text(display, 0, 0);
     },
   });
 }

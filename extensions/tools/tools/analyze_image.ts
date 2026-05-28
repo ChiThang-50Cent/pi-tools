@@ -1,11 +1,9 @@
 // ─── analyze_image ───── Vision analysis via Ollama (Gemma 3 4B) ────────
 import { Type } from "typebox";
+import { Text } from "@earendil-works/pi-tui";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ollamaVision } from "../lib/ollama.js";
-import { truncateOutput } from "../lib/truncate.js";
 import { loadImageBytes } from "../lib/image.js";
-
-const OUTPUT_CAP = 300; // show ~a few lines, full output in details
 
 export function registerAnalyzeImage(pi: ExtensionAPI): void {
   pi.registerTool({
@@ -40,11 +38,10 @@ export function registerAnalyzeImage(pi: ExtensionAPI): void {
           || "Mô tả chi tiết bức ảnh này bằng tiếng Việt.";
 
         const result = await ollamaVision(prompt, base64);
-        const output = truncateOutput(result);
 
         return {
-          content: [{ type: "text", text: output.text }],
-          details: { mime, prompt: prompt.slice(0, 100), ...(output.truncated ? { fullOutput: result } : {}) },
+          content: [{ type: "text", text: result }],
+          details: { mime, prompt: prompt.slice(0, 100) },
         };
       } catch (e) {
         return {
@@ -52,6 +49,37 @@ export function registerAnalyzeImage(pi: ExtensionAPI): void {
           details: { error: String(e) },
         };
       }
+    },
+
+    renderCall(args, theme) {
+      const path = typeof args.image_path === "string" ? args.image_path : "";
+      const q = typeof args.question === "string" ? args.question.trim() : "";
+      let text = theme.fg("toolTitle", theme.bold("image ")) + theme.fg("accent", path.slice(0, 60));
+      if (q) text += theme.fg("dim", ` "${q.slice(0, 40)}"`);
+      return new Text(text, 0, 0);
+    },
+
+    renderResult(result, { expanded, isPartial }, theme) {
+      if (isPartial) return new Text(theme.fg("warning", "Analyzing..."), 0, 0);
+
+      const details = result.details as { mime?: string; error?: string } | undefined;
+      if (details?.error) return new Text(theme.fg("error", `Error: ${details.error}`), 0, 0);
+
+      const content = result.content[0];
+      const text = content?.type === "text" ? content.text : "";
+      const lineCount = text.split("\n").length;
+      const sizeKB = (Buffer.byteLength(text, "utf8") / 1024).toFixed(1);
+
+      let display = theme.fg("success", `${lineCount} lines`) + theme.fg("dim", ` (${sizeKB}KB)`);
+      if (details?.mime) display += theme.fg("dim", ` · ${details.mime}`);
+
+      if (expanded) {
+        const preview = text.split("\n").slice(0, 15).join("\n");
+        display += `\n${theme.fg("toolOutput", preview)}`;
+        if (lineCount > 15) display += `\n${theme.fg("muted", `... ${lineCount - 15} more lines`)}`;
+      }
+
+      return new Text(display, 0, 0);
     },
   });
 }
