@@ -1,0 +1,180 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+// Mock fs before importing config
+vi.mock("node:fs", () => ({
+  existsSync: vi.fn(),
+  readFileSync: vi.fn(),
+  statSync: vi.fn(),
+}));
+
+import { existsSync, readFileSync, statSync } from "node:fs";
+import {
+  loadConfig,
+  getSearXNGUrl,
+  getOllamaUrl,
+  getVisionModel,
+  getAgentModelConfig,
+  isToolAllowed,
+  type ToolsConfig,
+} from "../lib/config.js";
+
+const mockExistsSync = vi.mocked(existsSync);
+const mockReadFileSync = vi.mocked(readFileSync);
+const mockStatSync = vi.mocked(statSync);
+
+let mtimeCounter = 1000;
+function setupConfig(config: ToolsConfig | null) {
+  mtimeCounter++;
+  if (config === null) {
+    mockExistsSync.mockReturnValue(false);
+    mockStatSync.mockImplementation(() => { throw new Error("ENOENT"); });
+  } else {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(JSON.stringify(config));
+    mockStatSync.mockReturnValue({ mtimeMs: mtimeCounter } as any);
+  }
+  // Force cache refresh by calling loadConfig which reads fs directly
+  loadConfig();
+}
+
+describe("config", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Default: no config file
+    setupConfig(null);
+  });
+
+  describe("loadConfig", () => {
+    it("returns empty object when config file missing", () => {
+      setupConfig(null);
+      expect(loadConfig()).toEqual({});
+    });
+
+    it("parses valid JSON config", () => {
+      const config: ToolsConfig = { searxng: "http://custom:9090" };
+      setupConfig(config);
+      expect(loadConfig()).toEqual(config);
+    });
+
+    it("returns empty object on invalid JSON", () => {
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue("not json{{{");
+      expect(loadConfig()).toEqual({});
+    });
+
+    it("reads all config fields", () => {
+      const config: ToolsConfig = {
+        searxng: "http://search:8080",
+        ollama: "http://ollama:11434",
+        visionModel: "llava:13b",
+        agents: { explore: { model: "gpt-4", thinking: "high" } },
+        allow: ["web_search", "fetch_content"],
+        deny: [],
+        maxSubagentDepth: 3,
+      };
+      setupConfig(config);
+      const result = loadConfig();
+      expect(result.searxng).toBe("http://search:8080");
+      expect(result.ollama).toBe("http://ollama:11434");
+      expect(result.visionModel).toBe("llava:13b");
+      expect(result.agents?.explore?.model).toBe("gpt-4");
+      expect(result.allow).toEqual(["web_search", "fetch_content"]);
+      expect(result.maxSubagentDepth).toBe(3);
+    });
+  });
+
+  describe("getSearXNGUrl", () => {
+    it("returns default URL when not configured", () => {
+      setupConfig({});
+      expect(getSearXNGUrl()).toBe("http://127.0.0.1:8080");
+    });
+
+    it("returns configured URL", () => {
+      setupConfig({ searxng: "http://custom:9090" });
+      expect(getSearXNGUrl()).toBe("http://custom:9090");
+    });
+
+    it("strips trailing slashes", () => {
+      setupConfig({ searxng: "http://custom:9090///" });
+      expect(getSearXNGUrl()).toBe("http://custom:9090");
+    });
+  });
+
+  describe("getOllamaUrl", () => {
+    it("returns default URL when not configured", () => {
+      setupConfig({});
+      expect(getOllamaUrl()).toBe("http://localhost:11434");
+    });
+
+    it("returns configured URL", () => {
+      setupConfig({ ollama: "http://gpu-server:11434" });
+      expect(getOllamaUrl()).toBe("http://gpu-server:11434");
+    });
+  });
+
+  describe("getVisionModel", () => {
+    it("returns default model when not configured", () => {
+      setupConfig({});
+      expect(getVisionModel()).toBe("gemma3:4b");
+    });
+
+    it("returns configured model", () => {
+      setupConfig({ visionModel: "llava:13b" });
+      expect(getVisionModel()).toBe("llava:13b");
+    });
+  });
+
+  describe("getAgentModelConfig", () => {
+    it("returns agent config from tools.json", () => {
+      setupConfig({ agents: { explore: { model: "gpt-4", thinking: "high" } } });
+      const result = getAgentModelConfig("explore");
+      expect(result.model).toBe("gpt-4");
+      expect(result.thinking).toBe("high");
+    });
+
+    it("falls through to agentModel/agentThinking params", () => {
+      setupConfig({});
+      const result = getAgentModelConfig("unknown", "fallback-model", "low");
+      expect(result.model).toBe("fallback-model");
+      expect(result.thinking).toBe("low");
+    });
+
+    it("config values take priority over params", () => {
+      setupConfig({ agents: { worker: { model: "config-model" } } });
+      const result = getAgentModelConfig("worker", "param-model", "param-thinking");
+      expect(result.model).toBe("config-model");
+      expect(result.thinking).toBe("param-thinking");
+    });
+  });
+
+  describe("isToolAllowed", () => {
+    it("allows all tools when neither allow nor deny set", () => {
+      setupConfig({});
+      expect(isToolAllowed("web_search")).toBe(true);
+      expect(isToolAllowed("any_tool")).toBe(true);
+    });
+
+    it("only allows tools in allow list", () => {
+      setupConfig({ allow: ["web_search", "fetch_content"] });
+      expect(isToolAllowed("web_search")).toBe(true);
+      expect(isToolAllowed("fetch_content")).toBe(true);
+      expect(isToolAllowed("code_search")).toBe(false);
+    });
+
+    it("deny is ignored when allow is set", () => {
+      setupConfig({ allow: ["web_search"], deny: ["web_search"] });
+      expect(isToolAllowed("web_search")).toBe(true);
+    });
+
+    it("denies tools in deny list when allow is empty", () => {
+      setupConfig({ deny: ["subagent"] });
+      expect(isToolAllowed("web_search")).toBe(true);
+      expect(isToolAllowed("subagent")).toBe(false);
+    });
+
+    it("empty allow and deny lists allows all", () => {
+      setupConfig({ allow: [], deny: [] });
+      expect(isToolAllowed("any_tool")).toBe(true);
+    });
+  });
+});
