@@ -16,7 +16,7 @@ interface ToolsState {
 const ALL_TOOLS = [
   { name: "web_search", register: registerWebSearch, desc: "Search the web via SearXNG" },
   { name: "code_search", register: registerCodeSearch, desc: "Search code on GitHub, StackOverflow, PyPI, docs.rs" },
-  { name: "analyze_image", register: registerAnalyzeImage, desc: "Vision analysis via Ollama (Vietnamese & English)" },
+  { name: "analyze_image", register: registerAnalyzeImage, desc: "Vision analysis via Pi-configured models (Vietnamese & English)" },
   { name: "fetch_content", register: registerFetchContent, desc: "Fetch URLs & extract readable markdown" },
   { name: "get_search_content", register: registerGetSearchContent, desc: "Retrieve cached search/fetch results" },
   { name: "subagent", register: subagent, desc: "Delegate tasks to isolated subagents (single/parallel/chain)" },

@@ -141,9 +141,9 @@ describe("analyze_image renderResult", () => {
   });
 
   it("shows error state", () => {
-    const result = { content: [{ type: "text", text: "" }], details: { error: "Ollama offline" } };
+    const result = { content: [{ type: "text", text: "" }], details: { error: "Model not found" } };
     const rendered = analyzeImageRenderResult(result, {}, theme);
-    expect(rendered.content).toContain("Error: Ollama offline");
+    expect(rendered.content).toContain("Error: Model not found");
   });
 
   it("shows line count and size in collapsed view", () => {
