@@ -271,10 +271,12 @@ export function renderResult(
         const rIcon = isFailedResult(r) ? theme.fg("error", "✗") : theme.fg("success", "✓");
         const displayItems = getDisplayItems(r.messages);
         const finalOutput = getFinalOutput(r.messages);
+        const modelShort = r.model?.includes("/") ? r.model.split("/")[1] : r.model;
+        const modelStr = modelShort ? theme.fg("muted", ` [${modelShort}]`) : "";
 
         container.addChild(new Spacer(1));
         container.addChild(
-          new Text(`${theme.fg("muted", "─── ") + theme.fg("accent", r.agent)} ${rIcon}`, 0, 0),
+          new Text(`${theme.fg("muted", "─── ") + theme.fg("accent", r.agent)}${modelStr} ${rIcon}`, 0, 0),
         );
         container.addChild(new Text(theme.fg("muted", "Task: ") + theme.fg("dim", r.task), 0, 0));
 
@@ -310,16 +312,19 @@ export function renderResult(
     // Collapsed (or still running)
     let text = `${icon} ${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}`;
     for (const r of details.results) {
+      const isRunning = r.exitCode === -1;
       const rIcon =
-        r.exitCode === -1
+        isRunning
           ? theme.fg("warning", "⏳")
           : isFailedResult(r)
             ? theme.fg("error", "✗")
             : theme.fg("success", "✓");
       const displayItems = getDisplayItems(r.messages);
-      text += `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)} ${rIcon}`;
+      const modelShort = r.model?.includes("/") ? r.model.split("/")[1] : r.model;
+      const modelStr = modelShort ? theme.fg("muted", ` [${modelShort}]`) : "";
+      text += `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)}${modelStr} ${rIcon}`;
       if (displayItems.length === 0)
-        text += `\n${theme.fg("muted", r.exitCode === -1 ? "(running...)" : "(no output)")}`;
+        text += `\n${theme.fg("muted", isRunning ? "(running...)" : "(no output)")}`;
       else text += `\n${renderDisplayItems(displayItems, theme, 5)}`;
     }
     if (!isRunning) {

@@ -5,13 +5,48 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
-import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import { withFileMutationQueue, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AgentConfig } from "../../lib/agents.js";
 import { getAgentModelConfig } from "../../lib/config.js";
 import { getPiInvocation } from "../../lib/invoke.js";
 import { getFinalOutput } from "./types.js";
 import type { SingleResult, SubagentDetails } from "./types.js";
 import { zeroUsage } from "./types.js";
+
+/**
+ * Resolve a model string to provider/modelId format.
+ * If the model already has a provider prefix (contains '/'), returns as-is.
+ * Otherwise, searches the model registry for a matching modelId.
+ */
+function resolveModelString(
+  modelStr: string,
+  ctx: ExtensionContext,
+): string {
+  // Already has provider prefix
+  if (modelStr.includes("/")) return modelStr;
+
+  // Try to find in registry
+  const allModels = ctx.modelRegistry.getAll();
+  const matches = allModels.filter((m) => m.id === modelStr);
+
+  if (matches.length === 1) {
+    // Unique model - use it
+    return `${matches[0].provider}/${matches[0].id}`;
+  }
+
+  if (matches.length > 1) {
+    // Multiple providers have this model - prefer the first one with auth
+    const withAuth = matches.filter((m) => ctx.modelRegistry.hasConfiguredAuth(m));
+    if (withAuth.length > 0) {
+      return `${withAuth[0].provider}/${withAuth[0].id}`;
+    }
+    // No auth - use first match
+    return `${matches[0].provider}/${matches[0].id}`;
+  }
+
+  // No match found - return as-is (will fail at spawn time)
+  return modelStr;
+}
 
 export type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
 
@@ -35,6 +70,7 @@ export async function runSingleAgent(
   signal: AbortSignal | undefined,
   onUpdate: OnUpdateCallback | undefined,
   makeDetails: (results: SingleResult[]) => SubagentDetails,
+  ctx: ExtensionContext,
   modelOverride?: string,
   thinkingOverride?: string,
 ): Promise<SingleResult> {
@@ -58,8 +94,10 @@ export async function runSingleAgent(
 
   // Model resolution: task override > tool-level override > tools.json config > agent frontmatter > inherit
   const agentCfg = getAgentModelConfig(agentName, agent.model, agent.thinking);
-  const resolvedModel = modelOverride ?? agentCfg.model;
+  const rawModel = modelOverride ?? agentCfg.model;
   const resolvedThinking = thinkingOverride ?? agentCfg.thinking;
+  // Resolve model to provider/modelId format
+  const resolvedModel = rawModel ? resolveModelString(rawModel, ctx) : undefined;
   if (resolvedModel) {
     args.push("--model", resolvedModel);
     if (resolvedThinking) args.push("--thinking", resolvedThinking);
@@ -74,11 +112,11 @@ export async function runSingleAgent(
     agent: agentName,
     agentSource: agent.source,
     task,
-    exitCode: 0,
+    exitCode: -1,
     messages: [],
     stderr: "",
     usage: zeroUsage(),
-    model: agent.model,
+    model: resolvedModel ?? agent.model,
     step,
   };
 

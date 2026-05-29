@@ -78,7 +78,8 @@ export function buildPromptGuidelines(agents: AgentConfig[]): string[] {
     "Do NOT use subagent for trivial one-step tasks (reading a known file path, running a simple grep). Use read/bash/grep directly instead.",
     "Use parallel mode to run multiple independent investigations simultaneously.",
     "Use chain mode when one task depends on the output of another (use {previous} placeholder).",
-    "For model selection: pick models from the Available Models list in your system prompt. Use cheaper/faster models for simple tasks, reasoning models for complex analysis. Omit the model field to inherit the agent's configured default or the parent's model.",
+    "IMPORTANT: Always include provider prefix in model field. Example: `opencode-go/deepseek-v4-pro` not just `deepseek-v4-pro`.",
+    "For model selection: use the format `provider/modelId` (e.g. `opencode-go/deepseek-v4-pro`). Use cheaper/faster models for simple tasks, reasoning models for complex analysis. Omit the model field to inherit the agent's configured default or the parent's model.",
     "Each agent has a default model configured in ~/.pi/tools.json (agents section). The model is auto-applied — you only need to override it when you want a different model for a specific task.",
   );
 

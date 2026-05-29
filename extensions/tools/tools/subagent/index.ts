@@ -160,6 +160,7 @@ export default function (pi: ExtensionAPI) {
             signal,
             chainUpdate,
             makeDetails("chain"),
+            ctx,
             step.model ?? params.model,
             step.thinking ?? params.thinking,
           );
@@ -236,6 +237,7 @@ export default function (pi: ExtensionAPI) {
               }
             },
             makeDetails("parallel"),
+            ctx,
             t.model ?? params.model,
             t.thinking ?? params.thinking,
           );
@@ -274,6 +276,7 @@ export default function (pi: ExtensionAPI) {
           signal,
           onUpdate,
           makeDetails("single"),
+          ctx,
           params.model,
           params.thinking,
         );
