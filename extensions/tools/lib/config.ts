@@ -8,8 +8,7 @@ const CONFIG_PATH = join(homedir(), ".pi", "tools.json");
 
 export interface ToolsConfig {
   searxng?: string;    // SearXNG search URL
-  ollama?: string;     // Ollama API URL
-  visionModel?: string; // Ollama vision model name
+  vision?: { defaultModel: string }; // Pi-configured vision model (provider/modelId)
   /** Per-agent model configuration. Key = agent name, value = model config. */
   agents?: Record<string, AgentModelConfig>;
   /** Allowlist: if non-empty, ONLY these tools are registered (deny is ignored) */
@@ -50,12 +49,8 @@ export function getSearXNGUrl(): string {
   return getConfig().searxng?.replace(/\/+$/, "") || "http://127.0.0.1:8080";
 }
 
-export function getOllamaUrl(): string {
-  return getConfig().ollama?.replace(/\/+$/, "") || "http://localhost:11434";
-}
-
 export function getVisionModel(): string {
-  return getConfig().visionModel || "gemma3:4b";
+  return getConfig().vision?.defaultModel || "";
 }
 
 /** Get the merged agent model config: tools.json config → agent frontmatter (for model & thinking fallthrough) */

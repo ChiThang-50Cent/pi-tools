@@ -1,9 +1,4 @@
 // ─── types.ts ────── Shared types ─────────────────────────────────────────
-export interface OllamaResponse {
-  response: string;
-  done: boolean;
-}
-
 /** Per-agent model configuration (from ~/.pi/tools.json or agent frontmatter) */
 export interface AgentModelConfig {
   /** Default model for this agent */

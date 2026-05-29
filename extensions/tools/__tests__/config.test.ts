@@ -11,7 +11,6 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import {
   loadConfig,
   getSearXNGUrl,
-  getOllamaUrl,
   getVisionModel,
   getAgentModelConfig,
   isToolAllowed,
@@ -65,8 +64,7 @@ describe("config", () => {
     it("reads all config fields", () => {
       const config: ToolsConfig = {
         searxng: "http://search:8080",
-        ollama: "http://ollama:11434",
-        visionModel: "llava:13b",
+        vision: { defaultModel: "opencode-go/kimi-k2.6" },
         agents: { explore: { model: "gpt-4", thinking: "high" } },
         allow: ["web_search", "fetch_content"],
         deny: [],
@@ -75,8 +73,7 @@ describe("config", () => {
       setupConfig(config);
       const result = loadConfig();
       expect(result.searxng).toBe("http://search:8080");
-      expect(result.ollama).toBe("http://ollama:11434");
-      expect(result.visionModel).toBe("llava:13b");
+      expect(result.vision?.defaultModel).toBe("opencode-go/kimi-k2.6");
       expect(result.agents?.explore?.model).toBe("gpt-4");
       expect(result.allow).toEqual(["web_search", "fetch_content"]);
       expect(result.maxSubagentDepth).toBe(3);
@@ -100,27 +97,15 @@ describe("config", () => {
     });
   });
 
-  describe("getOllamaUrl", () => {
-    it("returns default URL when not configured", () => {
-      setupConfig({});
-      expect(getOllamaUrl()).toBe("http://localhost:11434");
-    });
-
-    it("returns configured URL", () => {
-      setupConfig({ ollama: "http://gpu-server:11434" });
-      expect(getOllamaUrl()).toBe("http://gpu-server:11434");
-    });
-  });
-
   describe("getVisionModel", () => {
-    it("returns default model when not configured", () => {
+    it("returns empty string when not configured", () => {
       setupConfig({});
-      expect(getVisionModel()).toBe("gemma3:4b");
+      expect(getVisionModel()).toBe("");
     });
 
-    it("returns configured model", () => {
-      setupConfig({ visionModel: "llava:13b" });
-      expect(getVisionModel()).toBe("llava:13b");
+    it("returns vision.defaultModel when configured", () => {
+      setupConfig({ vision: { defaultModel: "opencode-go/kimi-k2.5" } });
+      expect(getVisionModel()).toBe("opencode-go/kimi-k2.5");
     });
   });
 

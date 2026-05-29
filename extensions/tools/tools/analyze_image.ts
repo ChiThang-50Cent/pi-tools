@@ -1,8 +1,8 @@
-// ─── analyze_image ───── Vision analysis via Ollama (Gemma 3 4B) ────────
+// ─── analyze_image ───── Vision analysis via Pi-configured models ─────
 import { Type } from "typebox";
 import { Text } from "@earendil-works/pi-tui";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { ollamaVision } from "../lib/ollama.js";
+import { callVision } from "../lib/vision.js";
 import { loadImageBytes } from "../lib/image.js";
 
 export function registerAnalyzeImage(pi: ExtensionAPI): void {
@@ -27,21 +27,36 @@ export function registerAnalyzeImage(pi: ExtensionAPI): void {
       question: Type.Optional(Type.String({ description: "What to ask. Omit for Vietnamese description." })),
     }),
 
-    async execute(_id, params, _signal, onUpdate) {
+    async execute(_id, params, _signal, onUpdate, ctx) {
       onUpdate?.({ content: [{ type: "text", text: "Loading image..." }] });
 
       try {
-        const { base64, mime } = await loadImageBytes(params.image_path);
-        onUpdate?.({ content: [{ type: "text", text: `Analyzing with vision model...` }] });
+        const image = await loadImageBytes(params.image_path);
+        const sizeKB = Math.round(Buffer.byteLength(image.base64, "base64") / 1024);
+        onUpdate?.({ 
+          content: [{ 
+            type: "text", 
+            text: image.wasResized 
+              ? `Resized ${image.originalWidth}x${image.originalHeight} → ${image.width}x${image.height} (${sizeKB}KB). Analyzing...`
+              : `Analyzing image (${sizeKB}KB)...`
+          }] 
+        });
 
         const prompt = params.question?.trim()
           || "Mô tả chi tiết bức ảnh này bằng tiếng Việt.";
 
-        const result = await ollamaVision(prompt, base64);
+        const result = await callVision(ctx, prompt, image.base64, image.mime, _signal);
 
         return {
-          content: [{ type: "text", text: result }],
-          details: { mime, prompt: prompt.slice(0, 100) },
+          content: [{ type: "text", text: result.text }],
+          details: { 
+            mime: image.mime, 
+            prompt: prompt.slice(0, 100), 
+            provider: result.provider, 
+            modelId: result.modelId,
+            originalSize: image.wasResized ? `${image.originalWidth}x${image.originalHeight}` : undefined,
+            resizedTo: image.wasResized ? `${image.width}x${image.height}` : undefined,
+          },
         };
       } catch (e) {
         return {
@@ -62,16 +77,27 @@ export function registerAnalyzeImage(pi: ExtensionAPI): void {
     renderResult(result, { expanded, isPartial }, theme) {
       if (isPartial) return new Text(theme.fg("warning", "Analyzing..."), 0, 0);
 
-      const details = result.details as { mime?: string; error?: string } | undefined;
+      const details = result.details as { 
+        mime?: string; 
+        error?: string; 
+        provider?: string; 
+        modelId?: string;
+        originalSize?: string;
+        resizedTo?: string;
+      } | undefined;
       if (details?.error) return new Text(theme.fg("error", `Error: ${details.error}`), 0, 0);
 
       const content = result.content[0];
       const text = content?.type === "text" ? content.text : "";
       const lineCount = text.split("\n").length;
-      const sizeKB = (Buffer.byteLength(text, "utf8") / 1024).toFixed(1);
 
-      let display = theme.fg("success", `${lineCount} lines`) + theme.fg("dim", ` (${sizeKB}KB)`);
-      if (details?.mime) display += theme.fg("dim", ` · ${details.mime}`);
+      let display = theme.fg("success", `${lineCount} lines`);
+      if (details?.provider && details?.modelId) {
+        display += theme.fg("dim", ` · ${details.provider}/${details.modelId}`);
+      }
+      if (details?.originalSize && details?.resizedTo) {
+        display += theme.fg("dim", ` · resized ${details.originalSize}→${details.resizedTo}`);
+      }
 
       if (expanded) {
         const preview = text.split("\n").slice(0, 15).join("\n");

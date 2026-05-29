@@ -1,6 +1,7 @@
 // ─── image.ts ────── Image loading from file/URL/data URI ────────────────
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { resizeImage } from "@earendil-works/pi-coding-agent";
 
 const MAX_IMAGE_MB = 20;
 
@@ -10,7 +11,17 @@ const MIME_MAP: Record<string, string> = {
   ".gif": "image/gif", ".bmp": "image/bmp",
 };
 
-export async function loadImageBytes(source: string): Promise<{ base64: string; mime: string }> {
+export interface LoadImageResult {
+  base64: string;
+  mime: string;
+  originalWidth?: number;
+  originalHeight?: number;
+  width?: number;
+  height?: number;
+  wasResized?: boolean;
+}
+
+export async function loadImageBytes(source: string): Promise<LoadImageResult> {
   // Data URI
   if (source.startsWith("data:")) {
     const [header, b64] = source.split(",", 2);
@@ -46,5 +57,20 @@ export async function loadImageBytes(source: string): Promise<{ base64: string; 
   const mime = MIME_MAP[ext] || "image/png";
   const buffer = readFileSync(filePath);
 
+  // Resize using Pi's built-in resizer (2000x2000 max, 4.5MB max)
+  const resized = await resizeImage(buffer, mime);
+  if (resized) {
+    return {
+      base64: resized.data,
+      mime: resized.mimeType,
+      originalWidth: resized.originalWidth,
+      originalHeight: resized.originalHeight,
+      width: resized.width,
+      height: resized.height,
+      wasResized: resized.wasResized,
+    };
+  }
+
+  // Fallback: no resize
   return { base64: buffer.toString("base64"), mime };
 }
