@@ -100,7 +100,9 @@ export async function runSingleAgent(
   const resolvedModel = rawModel ? resolveModelString(rawModel, ctx) : undefined;
   if (resolvedModel) {
     args.push("--model", resolvedModel);
-    if (resolvedThinking) args.push("--thinking", resolvedThinking);
+  }
+  if (resolvedThinking) {
+    args.push("--thinking", resolvedThinking);
   }
 
   if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));

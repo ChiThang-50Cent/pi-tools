@@ -81,6 +81,7 @@ export function buildPromptGuidelines(agents: AgentConfig[]): string[] {
     "IMPORTANT: Always include provider prefix in model field. Example: `opencode-go/deepseek-v4-pro` not just `deepseek-v4-pro`.",
     "For model selection: use the format `provider/modelId` (e.g. `opencode-go/deepseek-v4-pro`). Use cheaper/faster models for simple tasks, reasoning models for complex analysis. Omit the model field to inherit the agent's configured default or the parent's model.",
     "Each agent has a default model configured in ~/.pi/tools.json (agents section). The model is auto-applied — you only need to override it when you want a different model for a specific task.",
+    "Available thinking levels: off, minimal, low, medium, high, xhigh. Lower = faster/cheaper, higher = more thorough reasoning. Use higher levels for complex analysis, lower for simple tasks.",
   );
 
   return guidelines;
