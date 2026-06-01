@@ -104,17 +104,18 @@ export function renderResult(
   // ── SINGLE ──
   if (details.mode === "single" && details.results.length === 1) {
     const r = details.results[0];
+    const isRunning = r.exitCode === -1;
     const isError = isFailedResult(r);
-    const icon = isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
+    const icon = isRunning ? theme.fg("warning", "⏳") : isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
     const displayItems = getDisplayItems(r.messages);
     const finalOutput = getFinalOutput(r.messages);
 
     if (expanded) {
       const container = new Container();
       let header = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}`;
-      if (isError && r.stopReason) header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
+      if (!isRunning && isError && r.stopReason) header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
       container.addChild(new Text(header, 0, 0));
-      if (isError && r.errorMessage)
+      if (!isRunning && isError && r.errorMessage)
         container.addChild(new Text(theme.fg("error", `Error: ${r.errorMessage}`), 0, 0));
       container.addChild(new Spacer(1));
       container.addChild(new Text(theme.fg("muted", "─── Task ───"), 0, 0));
@@ -149,9 +150,9 @@ export function renderResult(
 
     // Collapsed
     let text = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}`;
-    if (isError && r.stopReason) text += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
-    if (isError && r.errorMessage) text += `\n${theme.fg("error", `Error: ${r.errorMessage}`)}`;
-    else if (displayItems.length === 0) text += `\n${theme.fg("muted", "(no output)")}`;
+    if (!isRunning && isError && r.stopReason) text += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
+    if (!isRunning && isError && r.errorMessage) text += `\n${theme.fg("error", `Error: ${r.errorMessage}`)}`;
+    else if (displayItems.length === 0) text += `\n${theme.fg("muted", isRunning ? "(running...)" : "(no output)")}`;
     else {
       text += `\n${renderDisplayItems(displayItems, theme, COLLAPSED_ITEM_COUNT)}`;
       if (displayItems.length > COLLAPSED_ITEM_COUNT) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
@@ -180,7 +181,8 @@ export function renderResult(
       );
 
       for (const r of details.results) {
-        const rIcon = r.exitCode === 0 ? theme.fg("success", "✓") : theme.fg("error", "✗");
+        const isStepRunning = r.exitCode === -1;
+        const rIcon = isStepRunning ? theme.fg("warning", "⏳") : r.exitCode === 0 ? theme.fg("success", "✓") : theme.fg("error", "✗");
         const displayItems = getDisplayItems(r.messages);
         const finalOutput = getFinalOutput(r.messages);
 
@@ -230,7 +232,8 @@ export function renderResult(
       theme.fg("toolTitle", theme.bold("chain ")) +
       theme.fg("accent", `${successCount}/${details.results.length} steps`);
     for (const r of details.results) {
-      const rIcon = r.exitCode === 0 ? theme.fg("success", "✓") : theme.fg("error", "✗");
+      const isStepRunning = r.exitCode === -1;
+      const rIcon = isStepRunning ? theme.fg("warning", "⏳") : r.exitCode === 0 ? theme.fg("success", "✓") : theme.fg("error", "✗");
       const displayItems = getDisplayItems(r.messages);
       text += `\n\n${theme.fg("muted", `─── Step ${r.step}: `)}${theme.fg("accent", r.agent)} ${rIcon}`;
       if (displayItems.length === 0) text += `\n${theme.fg("muted", "(no output)")}`;
