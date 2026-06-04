@@ -165,7 +165,13 @@ export function renderResult(
   // ── CHAIN ──
   if (details.mode === "chain") {
     const successCount = details.results.filter((r) => r.exitCode === 0).length;
-    const icon = successCount === details.results.length ? theme.fg("success", "✓") : theme.fg("error", "✗");
+    const running = details.results.filter((r) => r.exitCode === -1).length;
+    const isRunning = running > 0;
+    const icon = isRunning
+      ? theme.fg("warning", "⏳")
+      : successCount === details.results.length
+        ? theme.fg("success", "✓")
+        : theme.fg("error", "✗");
 
     if (expanded) {
       const container = new Container();
@@ -185,11 +191,13 @@ export function renderResult(
         const rIcon = isStepRunning ? theme.fg("warning", "⏳") : r.exitCode === 0 ? theme.fg("success", "✓") : theme.fg("error", "✗");
         const displayItems = getDisplayItems(r.messages);
         const finalOutput = getFinalOutput(r.messages);
+        const modelShort = r.model?.includes("/") ? r.model.split("/")[1] : r.model;
+        const modelStr = modelShort ? theme.fg("muted", ` [${modelShort}]`) : "";
 
         container.addChild(new Spacer(1));
         container.addChild(
           new Text(
-            `${theme.fg("muted", `─── Step ${r.step}: `) + theme.fg("accent", r.agent)} ${rIcon}`,
+            `${theme.fg("muted", `─── Step ${r.step}: `) + theme.fg("accent", r.agent)}${modelStr} ${rIcon}`,
             0,
             0,
           ),
@@ -235,7 +243,9 @@ export function renderResult(
       const isStepRunning = r.exitCode === -1;
       const rIcon = isStepRunning ? theme.fg("warning", "⏳") : r.exitCode === 0 ? theme.fg("success", "✓") : theme.fg("error", "✗");
       const displayItems = getDisplayItems(r.messages);
-      text += `\n\n${theme.fg("muted", `─── Step ${r.step}: `)}${theme.fg("accent", r.agent)} ${rIcon}`;
+      const modelShort = r.model?.includes("/") ? r.model.split("/")[1] : r.model;
+      const modelStr = modelShort ? theme.fg("muted", ` [${modelShort}]`) : "";
+      text += `\n\n${theme.fg("muted", `─── Step ${r.step}: `)}${theme.fg("accent", r.agent)}${modelStr} ${rIcon}`;
       if (displayItems.length === 0) text += `\n${theme.fg("muted", "(no output)")}`;
       else text += `\n${renderDisplayItems(displayItems, theme, 5)}`;
     }
