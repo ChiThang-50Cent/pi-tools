@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { AgentModelConfig } from "./types.js";
 
 const CONFIG_PATH = join(homedir(), ".pi", "tools.json");
+const SETTINGS_PATH = join(homedir(), ".pi", "agent", "settings.json");
 
 export interface ToolsConfig {
   searxng?: string;    // SearXNG search URL
@@ -17,6 +18,16 @@ export interface ToolsConfig {
   deny?: string[];
   /** Max subagent nesting depth. Default 1 = only root pi can spawn subagents. Overridable via PI_MAX_SUBAGENT_DEPTH env var. */
   maxSubagentDepth?: number;
+}
+
+export interface PiSettings {
+  lastChangelogVersion?: string;
+  defaultProvider?: string;
+  defaultModel?: string;
+  defaultThinkingLevel?: string;
+  enabledModels?: string[];
+  packages?: string[];
+  permissionLevel?: string;
 }
 
 export function loadConfig(): ToolsConfig {
@@ -61,6 +72,30 @@ export function getAgentModelConfig(agentName: string, agentModel?: string, agen
     thinking: config.thinking ?? agentThinking,
     tasks: config.tasks,
   };
+}
+
+let _settingsCache: PiSettings | null = null;
+let _settingsMtime: number = 0;
+
+function getSettings(): PiSettings {
+  try {
+    const stat = statSync(SETTINGS_PATH);
+    if (stat.mtimeMs !== _settingsMtime) {
+      _settingsCache = existsSync(SETTINGS_PATH)
+        ? JSON.parse(readFileSync(SETTINGS_PATH, "utf-8")) as PiSettings
+        : {};
+      _settingsMtime = stat.mtimeMs;
+    }
+  } catch {
+    _settingsCache = {};
+    _settingsMtime = 0;
+  }
+  return _settingsCache ?? {};
+}
+
+/** Get list of enabled models from ~/.pi/agent/settings.json */
+export function getEnabledModels(): string[] {
+  return getSettings().enabledModels ?? [];
 }
 
 /**

@@ -1,12 +1,22 @@
 // ─── descriptors.ts ────── Agent descriptions & prompt guidelines ───────
 import type { AgentConfig } from "../../lib/agents.js";
-import { getAgentModelConfig } from "../../lib/config.js";
+import { getAgentModelConfig, getEnabledModels } from "../../lib/config.js";
 
 export function buildAgentDescription(agents: AgentConfig[]): string {
   const lines: string[] = [
     "Delegate tasks to specialized subagents with isolated context windows. Each subagent runs in a separate pi process with its own tools and system prompt.",
     "",
   ];
+
+  // Show available models
+  const enabledModels = getEnabledModels();
+  if (enabledModels.length > 0) {
+    lines.push("Available models:");
+    for (const m of enabledModels) {
+      lines.push(`  - ${m}`);
+    }
+    lines.push("");
+  }
 
   if (agents.length === 0) {
     lines.push(
@@ -21,7 +31,7 @@ export function buildAgentDescription(agents: AgentConfig[]): string {
         entry += ` [tasks: ${a.taskCategories.join(", ")}]`;
       }
       if (agentCfg.model) {
-        entry += ` — default model: ${agentCfg.model}`;
+        entry += ` — prefer: ${agentCfg.model}`;
         if (agentCfg.thinking) entry += ` (thinking: ${agentCfg.thinking})`;
       }
       entry += `: ${a.description}`;
