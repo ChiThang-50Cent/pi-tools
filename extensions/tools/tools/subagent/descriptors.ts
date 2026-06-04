@@ -33,8 +33,15 @@ export function buildAgentDescription(agents: AgentConfig[]): string {
     "",
     "Modes:",
     '  - Single: { agent: "name", task: "..." }',
-    '  - Parallel: { tasks: [{ agent: "name", task: "..." }, ...] } (max 8)',
+    '    → One agent, one task. Use for focused work.',
+    "",
+    '  - Parallel: { tasks: [{ agent: "name", task: "..." }, ...] }',
+    '    → Multiple independent tasks run simultaneously (max 8).',
+    '    → Each task has its own agent and runs in parallel.',
+    "",
     '  - Chain: { chain: [{ agent: "name", task: "... {previous} ..." }, ...] }',
+    '    → Sequential tasks where each step depends on the previous.',
+    '    → Use {previous} to reference output from the prior step.',
   );
 
   return lines.join("\n");
@@ -44,6 +51,7 @@ export function buildPromptGuidelines(agents: AgentConfig[]): string[] {
   const guidelines = [
     "Use subagent to delegate self-contained work to an agent with fresh, isolated context. This keeps the main conversation focused.",
     "If the user explicitly asks you to 'use a subagent' or 'delegate to an agent', you MUST call this tool.",
+    "When delegating tasks, ALWAYS write the task text in English regardless of the user's language. This ensures consistent behavior across all subagents.",
   ];
 
   if (agents.length > 0) {
