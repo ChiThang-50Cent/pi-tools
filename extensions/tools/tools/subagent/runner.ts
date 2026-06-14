@@ -12,6 +12,7 @@ import { getPiInvocation } from "../../lib/invoke.js";
 import { getFinalOutput } from "./types.js";
 import type { SingleResult, SubagentDetails } from "./types.js";
 import { zeroUsage } from "./types.js";
+import { buildSpawnPlan } from "./spawn.js";
 
 /**
  * Resolve a model string to provider/modelId format.
@@ -73,6 +74,9 @@ export async function runSingleAgent(
   ctx: ExtensionContext,
   modelOverride?: string,
   thinkingOverride?: string,
+  spawnModeOverride?: string,
+  handoffContextChars?: number,
+  handoffContextTruncated?: boolean,
 ): Promise<SingleResult> {
   const agent = agents.find((a) => a.name === agentName);
 
@@ -91,6 +95,10 @@ export async function runSingleAgent(
   }
 
   const args: string[] = ["--mode", "json", "-p", "--no-session"];
+
+  // Phase 3: lean-spawn plan — add spawn flags before model/tools args
+  const spawnPlan = buildSpawnPlan(agent, spawnModeOverride);
+  if (spawnPlan.flags.length > 0) args.push(...spawnPlan.flags);
 
   // Model resolution: task override > tool-level override > tools.json config > agent frontmatter > inherit
   const agentCfg = getAgentModelConfig(agentName, agent.model, agent.thinking);
@@ -120,6 +128,11 @@ export async function runSingleAgent(
     usage: zeroUsage(),
     model: resolvedModel ?? agent.model,
     step,
+    spawnMode: spawnPlan.mode,
+    spawnFlags: spawnPlan.flags.length > 0 ? spawnPlan.flags : undefined,
+    spawnNotes: spawnPlan.notes.length > 0 ? spawnPlan.notes : undefined,
+    handoffContextChars,
+    handoffContextTruncated,
   };
 
   const emitUpdate = () => {

@@ -110,11 +110,17 @@ export function renderResult(
     const displayItems = getDisplayItems(r.messages);
     const finalOutput = getFinalOutput(r.messages);
 
+    // Phase 3: spawn metadata line
+    const spawnLine = r.spawnMode
+      ? theme.fg("dim", `spawn: ${r.spawnMode}${r.spawnFlags && r.spawnFlags.length > 0 ? ` ${r.spawnFlags.join(" ")}` : ""}${r.spawnNotes && r.spawnNotes.length > 0 ? ` (${r.spawnNotes.join("; ")})` : ""}`)
+      : "";
+
     if (expanded) {
       const container = new Container();
       let header = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}`;
       if (!isRunning && isError && r.stopReason) header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
       container.addChild(new Text(header, 0, 0));
+      if (spawnLine) container.addChild(new Text(spawnLine, 0, 0));
       if (!isRunning && isError && r.errorMessage)
         container.addChild(new Text(theme.fg("error", `Error: ${r.errorMessage}`), 0, 0));
       container.addChild(new Spacer(1));
@@ -203,6 +209,10 @@ export function renderResult(
           ),
         );
         container.addChild(new Text(theme.fg("muted", "Task: ") + theme.fg("dim", r.task), 0, 0));
+        if (r.spawnMode) {
+          const stepSpawnLine = theme.fg("dim", `spawn: ${r.spawnMode}${r.spawnFlags && r.spawnFlags.length > 0 ? ` ${r.spawnFlags.join(" ")}` : ""}${r.spawnNotes && r.spawnNotes.length > 0 ? ` (${r.spawnNotes.join("; ")})` : ""}`);
+          container.addChild(new Text(stepSpawnLine, 0, 0));
+        }
 
         for (const item of displayItems) {
           if (item.type === "toolCall") {
@@ -292,6 +302,10 @@ export function renderResult(
           new Text(`${theme.fg("muted", "─── ") + theme.fg("accent", r.agent)}${modelStr} ${rIcon}`, 0, 0),
         );
         container.addChild(new Text(theme.fg("muted", "Task: ") + theme.fg("dim", r.task), 0, 0));
+        if (r.spawnMode) {
+          const parSpawnLine = theme.fg("dim", `spawn: ${r.spawnMode}${r.spawnFlags && r.spawnFlags.length > 0 ? ` ${r.spawnFlags.join(" ")}` : ""}${r.spawnNotes && r.spawnNotes.length > 0 ? ` (${r.spawnNotes.join("; ")})` : ""}`);
+          container.addChild(new Text(parSpawnLine, 0, 0));
+        }
 
         for (const item of displayItems) {
           if (item.type === "toolCall") {

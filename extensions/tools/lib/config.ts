@@ -93,9 +93,14 @@ function getSettings(): PiSettings {
   return _settingsCache ?? {};
 }
 
-/** Get list of enabled models from ~/.pi/agent/settings.json */
+/** Get list of enabled models from ~/.pi/agent/settings.json.
+ *  Sorted alphabetically for prompt-cache stability — the model list
+ *  appears in the subagent tool description embedded in the system
+ *  prompt, so deterministic ordering prevents cache misses when the
+ *  underlying settings file is reordered. */
 export function getEnabledModels(): string[] {
-  return getSettings().enabledModels ?? [];
+  const models = getSettings().enabledModels ?? [];
+  return [...models].sort((a, b) => a.localeCompare(b));
 }
 
 /**

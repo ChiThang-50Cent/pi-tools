@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "defaults": {
+    "cwd": ".",
+    "tools": ["read", "bash", "grep", "find", "ls", "subagent"]
+  },
+  "cases": [
+    {
+      "id": "direct-explore",
+      "description": "Direct root-agent exploration using built-in tools only",
+      "prompt": "Explore this codebase: locate the file containing the subagent spawn planner (spawn.ts under extensions/tools/tools/subagent/), list the built-in tool allowlist constants defined there (BUILTIN_TOOLS), and identify where lean-spawn CLI flags are attached to child process arguments in runner.ts. Respond as a short bullet list.",
+      "expectSubagent": false,
+      "tools": ["read", "bash", "grep", "find", "ls"],
+      "expectedToolNames": ["read", "bash", "grep", "find", "ls"],
+      "tags": ["direct", "explore"]
+    },
+    {
+      "id": "subagent-explore-full",
+      "description": "Subagent exploration with spawnMode full",
+      "prompt": "Use subagent with agent \"explore\", returnMode \"summary\", and spawnMode \"full\" to explore this codebase: locate the file containing the subagent spawn planner (spawn.ts under extensions/tools/tools/subagent/), list the built-in tool allowlist constants defined there (BUILTIN_TOOLS), and identify where lean-spawn CLI flags are attached to child process arguments in runner.ts. Respond as a short bullet list.",
+      "expectSubagent": true,
+      "expectedToolNames": ["subagent"],
+      "tags": ["subagent", "explore", "full"]
+    },
+    {
+      "id": "subagent-explore-lean",
+      "description": "Subagent exploration with spawnMode lean",
+      "prompt": "Use subagent with agent \"explore\", returnMode \"summary\", and spawnMode \"lean\" to explore this codebase: locate the file containing the subagent spawn planner (spawn.ts under extensions/tools/tools/subagent/), list the built-in tool allowlist constants defined there (BUILTIN_TOOLS), and identify where lean-spawn CLI flags are attached to child process arguments in runner.ts. Respond as a short bullet list.",
+      "expectSubagent": true,
+      "expectedToolNames": ["subagent"],
+      "tags": ["subagent", "explore", "lean"]
+    }
+  ]
+}

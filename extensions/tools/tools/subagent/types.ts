@@ -30,6 +30,23 @@ export interface SingleResult {
   stopReason?: string;
   errorMessage?: string;
   step?: number;
+  /** Effective spawn mode actually used ("full" or "lean"). */
+  spawnMode?: string;
+  /** Extra CLI flags added to the child process due to spawn planning. */
+  spawnFlags?: string[];
+  /** Human-readable notes from the spawn planner, e.g. when lean could not disable extensions. */
+  spawnNotes?: string[];
+  /** Number of characters in the handoff context block sent to the child (excl. framing). */
+  handoffContextChars?: number;
+  /** Whether the handoff context was truncated before being sent. */
+  handoffContextTruncated?: boolean;
+}
+
+export interface ArtifactEntry {
+  agent: string;
+  path: string;
+  bytes: number;
+  step?: number;
 }
 
 export interface SubagentDetails {
@@ -37,6 +54,9 @@ export interface SubagentDetails {
   agentScope: AgentScope;
   projectAgentsDir: string | null;
   results: SingleResult[];
+  returnMode?: string;
+  artifacts?: ArtifactEntry[];
+  summary?: string;
 }
 
 export type DisplayItem =

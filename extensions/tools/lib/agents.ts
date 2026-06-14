@@ -19,6 +19,8 @@ export interface AgentConfig {
 	thinking?: string;
 	/** Task categories this agent is optimized for. Helps the parent LLM choose the right agent + model. */
 	taskCategories?: string[];
+	/** Default spawn mode for this agent ("full" or "lean"). Overridable via the tool-call `spawnMode` parameter. */
+	spawnMode?: "full" | "lean";
 	systemPrompt: string;
 	source: AgentSource;
 	filePath: string;
@@ -59,6 +61,7 @@ Guidelines:
 		description:
 			"Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. \"src/components/**/*.tsx\"), search code for keywords (eg. \"API endpoints\"), or answer questions about the codebase (eg. \"how do API endpoints work?\"). When calling this agent, specify the desired thoroughness level: \"quick\" for basic searches, \"medium\" for moderate exploration, or \"very thorough\" for comprehensive analysis across multiple locations and naming conventions.",
 		tools: ["read", "grep", "find", "ls", "bash"],
+		spawnMode: "lean",
 		taskCategories: [
 			"code exploration",
 			"file discovery",
@@ -133,6 +136,10 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			.map((t: string) => t.trim())
 			.filter(Boolean);
 
+		// Parse spawnMode / spawn_mode from frontmatter
+		const rawSpawnMode = (frontmatter.spawnMode || frontmatter.spawn_mode || "").trim().toLowerCase();
+		const spawnMode = (rawSpawnMode === "lean" || rawSpawnMode === "full") ? rawSpawnMode as "lean" | "full" : undefined;
+
 		agents.push({
 			name: frontmatter.name,
 			description: frontmatter.description,
@@ -140,6 +147,7 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			model: frontmatter.model || undefined,
 			thinking: frontmatter.thinking || undefined,
 			taskCategories: taskCategories && taskCategories.length > 0 ? taskCategories : undefined,
+			spawnMode,
 			systemPrompt: body,
 			source,
 			filePath,
@@ -193,5 +201,8 @@ export function discoverAgents(cwd: string, scope: AgentScope): AgentDiscoveryRe
 		for (const agent of projectAgents) agentMap.set(agent.name, agent);
 	}
 
-	return { agents: Array.from(agentMap.values()), projectAgentsDir };
+	// Sort deterministically for prompt-cache stability. The same set of
+	// agents should always produce the same description/guideline text.
+	const agents = Array.from(agentMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+	return { agents, projectAgentsDir };
 }

@@ -11,6 +11,16 @@
  *   - Chain: { chain: [{ agent: "name", task: "... {previous} ..." }, ...] }
  *
  * Uses JSON mode to capture structured output from subagents.
+ *
+ * Return modes (Phase 1 — compact return):
+ *   - auto: heuristic based on output size (default)
+ *   - inline: current behavior — full output in content
+ *   - summary: compact preview in content, full data in details
+ *   - artifact: write full output to temp file, return path in content
+ *
+ * Chain handoff (Phase 4 — compact chain handoff):
+ *   - compact (default): truncated {previous} to reduce token blow-up
+ *   - full: current behavior — unbounded {previous}
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -23,11 +33,26 @@ import { renderCall, renderResult } from "./render.js";
 import { runSingleAgent } from "./runner.js";
 import { SubagentParams } from "./schemas.js";
 import type { OnUpdateCallback } from "./runner.js";
-import { getFinalOutput, getResultOutput, isFailedResult, truncateParallelOutput } from "./types.js";
+import { getFinalOutput, getResultOutput, isFailedResult } from "./types.js";
 import type { SingleResult, SubagentDetails } from "./types.js";
+import {
+  compactChainHandoff,
+  getEffectiveReturnMode,
+  writeArtifactsForResults,
+  buildSingleRootContent,
+  buildParallelRootContent,
+  buildChainRootContent,
+} from "./output.js";
+import { buildDelegatedTask, DEFAULT_CONTEXT_MAX_CHARS } from "./handoff.js";
+import type { ArtifactEntry } from "./types.js";
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
+
+/** Default constants for compact output */
+const DEFAULT_SUMMARY_MAX_CHARS = 1200;
+const DEFAULT_ARTIFACT_THRESHOLD_CHARS = 4000;
+const DEFAULT_CHAIN_HANDOFF_MAX_CHARS = 4000;
 
 /** Max subagent nesting depth. Env var PI_MAX_SUBAGENT_DEPTH takes priority over tools.json maxSubagentDepth. Default 1. */
 function getMaxSubagentDepth(): number {
@@ -52,6 +77,7 @@ export default function (pi: ExtensionAPI) {
     name: "subagent",
     label: "Subagent",
     description: buildAgentDescription(agents),
+    // Agent list is sorted by name for prompt-cache stability (see agents.ts discoverAgents)
     promptSnippet: `Delegate tasks to subagents (${agents.length > 0 ? agents.map(a => a.name).join(", ") : "none available"}) with isolated context windows`,
     promptGuidelines: buildPromptGuidelines(agents),
     parameters: SubagentParams,
@@ -77,6 +103,17 @@ export default function (pi: ExtensionAPI) {
       const agents = discovery.agents;
       const confirmProjectAgents = params.confirmProjectAgents ?? true;
 
+      // Parse new compact-output params with defaults
+      const returnMode = params.returnMode ?? "auto";
+      const summaryMaxChars = params.summaryMaxChars ?? DEFAULT_SUMMARY_MAX_CHARS;
+      const artifactThresholdChars = params.artifactThresholdChars ?? DEFAULT_ARTIFACT_THRESHOLD_CHARS;
+      const chainHandoffMode = params.chainHandoffMode ?? "compact";
+      const chainHandoffMaxChars = params.chainHandoffMaxChars ?? DEFAULT_CHAIN_HANDOFF_MAX_CHARS;
+
+      // Handoff context: top-level fallback + character budget
+      const topContext = params.context;
+      const contextMaxChars = params.contextMaxChars ?? DEFAULT_CONTEXT_MAX_CHARS;
+
       const hasChain = (params.chain?.length ?? 0) > 0;
       const hasTasks = (params.tasks?.length ?? 0) > 0;
       const hasSingle = Boolean(params.agent && params.task);
@@ -84,11 +121,12 @@ export default function (pi: ExtensionAPI) {
 
       const makeDetails =
         (mode: "single" | "parallel" | "chain") =>
-        (results: SingleResult[]): SubagentDetails => ({
+        (results: SingleResult[], extra?: Partial<SubagentDetails>): SubagentDetails => ({
           mode,
           agentScope,
           projectAgentsDir: discovery.projectAgentsDir,
           results,
+          ...extra,
         });
 
       if (modeCount !== 1) {
@@ -129,13 +167,23 @@ export default function (pi: ExtensionAPI) {
         }
       }
 
+      // ──────── CHAIN MODE ────────
       if (params.chain && params.chain.length > 0) {
         const results: SingleResult[] = [];
         let previousOutput = "";
 
         for (let i = 0; i < params.chain.length; i++) {
           const step = params.chain[i];
-          const taskWithContext = step.task.replace(/\{previous\}/g, previousOutput);
+
+          // Phase 4: compact chain handoff — truncate {previous} if needed
+          const handoffText = compactChainHandoff(previousOutput, chainHandoffMode, chainHandoffMaxChars);
+          let taskWithContext = step.task.replace(/\{previous\}/g, handoffText);
+
+          // Handoff context: per-step override > top-level
+          const stepContext = step.context ?? topContext;
+          const { task: builtTask, contextChars, truncated } = buildDelegatedTask(
+            taskWithContext, stepContext, contextMaxChars,
+          );
 
           const chainUpdate: OnUpdateCallback | undefined = onUpdate
             ? (partial) => {
@@ -154,7 +202,7 @@ export default function (pi: ExtensionAPI) {
             ctx.cwd,
             agents,
             step.agent,
-            taskWithContext,
+            builtTask,
             step.cwd,
             i + 1,
             signal,
@@ -163,6 +211,9 @@ export default function (pi: ExtensionAPI) {
             ctx,
             step.model ?? params.model,
             step.thinking ?? params.thinking,
+            step.spawnMode ?? params.spawnMode,
+            contextChars > 0 ? contextChars : undefined,
+            contextChars > 0 ? truncated : undefined,
           );
           results.push(result);
 
@@ -177,12 +228,35 @@ export default function (pi: ExtensionAPI) {
           }
           previousOutput = getFinalOutput(result.messages);
         }
+
+        // Phase 1/2: Build chain root content based on return mode
+        const effectiveChainMode = getEffectiveReturnMode(
+          returnMode, "chain",
+          results.map((r) => getResultOutput(r).length),
+          artifactThresholdChars,
+        );
+
+        let chainArtifacts: ArtifactEntry[] = [];
+        if (effectiveChainMode === "artifact") {
+          const { artifacts } = writeArtifactsForResults(results, artifactThresholdChars, returnMode === "artifact");
+          chainArtifacts = artifacts;
+        }
+
+        const chainContent = buildChainRootContent(
+          results, effectiveChainMode, chainArtifacts, summaryMaxChars,
+        );
+
         return {
-          content: [{ type: "text", text: getFinalOutput(results[results.length - 1].messages) || "(no output)" }],
-          details: makeDetails("chain")(results),
+          content: [{ type: "text", text: chainContent }],
+          details: makeDetails("chain")(results, {
+            returnMode: effectiveChainMode,
+            artifacts: chainArtifacts,
+            summary: effectiveChainMode !== "inline" ? chainContent : undefined,
+          }),
         };
       }
 
+      // ──────── PARALLEL MODE ────────
       if (params.tasks && params.tasks.length > 0) {
         if (params.tasks.length > MAX_PARALLEL_TASKS)
           return {
@@ -222,11 +296,16 @@ export default function (pi: ExtensionAPI) {
         };
 
         const results = await mapWithConcurrencyLimit(params.tasks, MAX_CONCURRENCY, async (t, index) => {
+          // Handoff context: per-task override > top-level
+          const taskCtx = t.context ?? topContext;
+          const { task: builtTask, contextChars, truncated } = buildDelegatedTask(
+            t.task, taskCtx, contextMaxChars,
+          );
           const result = await runSingleAgent(
             ctx.cwd,
             agents,
             t.agent,
-            t.task,
+            builtTask,
             t.cwd,
             undefined,
             signal,
@@ -240,37 +319,53 @@ export default function (pi: ExtensionAPI) {
             ctx,
             t.model ?? params.model,
             t.thinking ?? params.thinking,
+            t.spawnMode ?? params.spawnMode,
+            contextChars > 0 ? contextChars : undefined,
+            contextChars > 0 ? truncated : undefined,
           );
           allResults[index] = result;
           emitParallelUpdate();
           return result;
         });
 
-        const successCount = results.filter((r) => !isFailedResult(r)).length;
-        const summaries = results.map((r) => {
-          const output = truncateParallelOutput(getResultOutput(r));
-          const status = isFailedResult(r)
-            ? `failed${r.stopReason && r.stopReason !== "end" ? ` (${r.stopReason})` : ""}`
-            : "completed";
-          return `### [${r.agent}] ${status}\n\n${output}`;
-        });
+        // Phase 1/2: Determine effective return mode and build content
+        const effectiveParallelMode = getEffectiveReturnMode(
+          returnMode, "parallel",
+          results.map((r) => getResultOutput(r).length),
+          artifactThresholdChars,
+        );
+
+        let parallelArtifacts: ArtifactEntry[] = [];
+        if (effectiveParallelMode === "artifact") {
+          const { artifacts } = writeArtifactsForResults(results, artifactThresholdChars, returnMode === "artifact");
+          parallelArtifacts = artifacts;
+        }
+
+        const parallelContent = buildParallelRootContent(
+          results, effectiveParallelMode, parallelArtifacts, summaryMaxChars,
+        );
+
         return {
-          content: [
-            {
-              type: "text",
-              text: `Parallel: ${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n---\n\n")}`,
-            },
-          ],
-          details: makeDetails("parallel")(results),
+          content: [{ type: "text", text: parallelContent }],
+          details: makeDetails("parallel")(results, {
+            returnMode: effectiveParallelMode,
+            artifacts: parallelArtifacts,
+            summary: effectiveParallelMode !== "inline" ? parallelContent : undefined,
+          }),
         };
       }
 
+      // ──────── SINGLE MODE ────────
       if (params.agent && params.task) {
+        // Handoff context: top-level only (no per-task override in single mode)
+        const { task: builtTask, contextChars, truncated } = buildDelegatedTask(
+          params.task, topContext, contextMaxChars,
+        );
         const result = await runSingleAgent(
           ctx.cwd,
           agents,
           params.agent,
-          params.task,
+          builtTask,
           params.cwd,
           undefined,
           signal,
@@ -279,19 +374,48 @@ export default function (pi: ExtensionAPI) {
           ctx,
           params.model,
           params.thinking,
+          params.spawnMode,
+          contextChars > 0 ? contextChars : undefined,
+          contextChars > 0 ? truncated : undefined,
         );
         const isError = isFailedResult(result);
+
+        // Phase 1/2: Determine effective return mode
+        const rawOutput = getResultOutput(result);
+        const effectiveSingleMode = getEffectiveReturnMode(
+          returnMode, "single",
+          [rawOutput.length],
+          artifactThresholdChars,
+        );
+
+        let singleArtifacts: ArtifactEntry[] = [];
+        if (effectiveSingleMode === "artifact") {
+          const { artifacts } = writeArtifactsForResults([result], artifactThresholdChars, returnMode === "artifact");
+          singleArtifacts = artifacts;
+        }
+
+        const singleContent = buildSingleRootContent(
+          result, effectiveSingleMode, singleArtifacts, summaryMaxChars,
+        );
+
         if (isError) {
-          const errorMsg = getResultOutput(result);
           return {
-            content: [{ type: "text", text: `Agent ${result.stopReason || "failed"}: ${errorMsg}` }],
-            details: makeDetails("single")([result]),
+            content: [{ type: "text", text: `Agent ${result.stopReason || "failed"}: ${singleContent}` }],
+            details: makeDetails("single")([result], {
+              returnMode: effectiveSingleMode,
+              artifacts: singleArtifacts,
+            }),
             isError: true,
           };
         }
+
         return {
-          content: [{ type: "text", text: getFinalOutput(result.messages) || "(no output)" }],
-          details: makeDetails("single")([result]),
+          content: [{ type: "text", text: singleContent }],
+          details: makeDetails("single")([result], {
+            returnMode: effectiveSingleMode,
+            artifacts: singleArtifacts,
+            summary: effectiveSingleMode !== "inline" ? singleContent : undefined,
+          }),
         };
       }
 
