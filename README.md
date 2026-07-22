@@ -22,6 +22,10 @@ pi install git:github.com/ChiThang-50Cent/pi-tools
 
 **Built-in subagents:** `general` (multi-step tasks), `explore` (read-only codebase explorer)
 
+### Search query syntax
+
+SearXNG forwards a query to multiple engines, and advanced operators are not portable across them. Use a focused query and at most one `site:` filter per request. To search two domains, make two sequential searches instead of using `site:one.example OR site:two.example`; that form may return no results even when each individual search has matches.
+
 ### Subagent Routing Policy
 
 The subagent tool is powerful but has non-trivial overhead (child process, fresh context bootstrap, model invocations). Use direct tools when they suffice.
