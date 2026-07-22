@@ -1,6 +1,6 @@
 # pi-tools
 
-> Self-hosted tools for the [Pi coding agent](https://pi.dev): web search, code search, image analysis, content fetching, and subagent delegation.
+> Self-hosted tools for the [Pi coding agent](https://pi.dev): web search, code search, content fetching, and subagent delegation.
 
 ## Quick Install
 
@@ -16,7 +16,6 @@ pi install git:github.com/ChiThang-50Cent/pi-tools
 |------|-------------|
 | `web_search` | Search the web via SearXNG |
 | `code_search` | Search code on GitHub, StackOverflow, PyPI, docs.rs |
-| `analyze_image` | Vision analysis via Pi-configured models |
 | `fetch_content` | Fetch URLs & GitHub repos → markdown |
 | `get_search_content` | Retrieve cached results from prior searches |
 | `subagent` | Delegate tasks to isolated subagents (single / parallel / chain) |
@@ -200,14 +199,6 @@ The unit runs Node directly, stops gracefully with SIGTERM, and restarts only
 when the broker exits unsuccessfully. Do not use `sudo` or start a second broker
 on the same port.
 
-### 4. Vision Model (optional)
-
-`analyze_image` uses a vision model configured in Pi. Any provider already set up in Pi works (OpenAI, Anthropic, Google, OpenCode, etc).
-
-No extra installation needed — just configure the model in `~/.pi/tools.json`.
-
----
-
 ## Configuration
 
 `~/.pi/tools.json`:
@@ -224,7 +215,6 @@ No extra installation needed — just configure the model in `~/.pi/tools.json`.
     "brokerWaitTimeoutMs": 120000,
     "maxRetries": 2
   },
-  "vision": { "defaultModel": "opencode-go/kimi-k2.6" },
   "agents": {
     "general": { "model": "opencode-go/deepseek-v4-pro", "thinking": "medium" },
     "explore": { "model": "opencode-go/deepseek-v4-flash", "thinking": "off" }
@@ -242,7 +232,6 @@ No extra installation needed — just configure the model in `~/.pi/tools.json`.
 | `search.timeoutMs` | `15000` | Upstream SearXNG request timeout; in broker mode this is owned by the broker |
 | `search.brokerWaitTimeoutMs` | `120000` | Caller-to-broker HTTP wait deadline; used only when `brokerUrl` is set |
 | `search.maxRetries` | `2` | Broker retries for 502/503/504/network failures |
-| `vision.defaultModel` | — | Vision model (`provider/modelId`) |
 | `agents.<name>.model` | — | Override model for agent |
 | `agents.<name>.thinking` | — | Thinking level: `off` → `xhigh` |
 | `allow` | `[]` | Whitelist tools (deny ignored) |
@@ -277,8 +266,8 @@ Type `/tools` in Pi to toggle tools on/off. State persists across sessions.
 // Only web_search and subagent
 { "allow": ["web_search", "subagent"] }
 
-// Everything except analyze_image
-{ "deny": ["analyze_image"] }
+// Everything except fetch_content
+{ "deny": ["fetch_content"] }
 ```
 
 ---
@@ -544,16 +533,13 @@ extensions/tools/
 ├── tools/
 │   ├── web_search.ts        # SearXNG search
 │   ├── code_search.ts       # Code search
-│   ├── analyze_image.ts     # Vision analysis
 │   ├── fetch_content.ts     # URL → markdown
 │   ├── get_search_content.ts
 │   └── subagent/            # Subagent delegation
 └── lib/
     ├── config.ts            # ~/.pi/tools.json loader
-    ├── vision.ts            # Vision API (OpenAI, Anthropic, Google)
     ├── search.ts            # SearXNG client
     ├── fetch.ts             # HTTP + HTML processing
-    ├── image.ts             # Image loading + resize
     ├── agents.ts            # Agent discovery
     └── ...                  # Utilities
 ```
@@ -572,8 +558,6 @@ do not start several broker instances on the same configured port. Permanent
 bounded number of times.
 
 **Tools not appearing:** Run `/reload`, check `allow`/`deny` config, check `/tools` UI
-
-**Vision errors:** Ensure model supports images, check API key is configured
 
 ---
 

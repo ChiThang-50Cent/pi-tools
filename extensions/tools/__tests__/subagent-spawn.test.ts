@@ -51,7 +51,7 @@ describe("isBuiltinTool", () => {
 
   it("returns false for non-built-in tools", () => {
     expect(isBuiltinTool("web_search")).toBe(false);
-    expect(isBuiltinTool("analyze_image")).toBe(false);
+    expect(isBuiltinTool("fetch_content")).toBe(false);
     expect(isBuiltinTool("subagent")).toBe(false);
   });
 

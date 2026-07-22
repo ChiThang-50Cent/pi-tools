@@ -1,9 +1,8 @@
-// ─── index.ts ────── pi-tools: unified search + vision + fetch + subagent ─
+// ─── index.ts ────── pi-tools: unified search + fetch + subagent ─
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isToolAllowed } from "./lib/config.js";
 import { registerWebSearch } from "./tools/web_search.js";
 import { registerCodeSearch } from "./tools/code_search.js";
-import { registerAnalyzeImage } from "./tools/analyze_image.js";
 import { registerFetchContent } from "./tools/fetch_content.js";
 import { registerGetSearchContent } from "./tools/get_search_content.js";
 import subagent from "./tools/subagent/index.js";
@@ -16,7 +15,6 @@ interface ToolsState {
 const ALL_TOOLS = [
   { name: "web_search", register: registerWebSearch, desc: "Search the web via SearXNG" },
   { name: "code_search", register: registerCodeSearch, desc: "Search code on GitHub, StackOverflow, PyPI, docs.rs" },
-  { name: "analyze_image", register: registerAnalyzeImage, desc: "Vision analysis via Pi-configured models (Vietnamese & English)" },
   { name: "fetch_content", register: registerFetchContent, desc: "Fetch URLs & extract readable markdown" },
   { name: "get_search_content", register: registerGetSearchContent, desc: "Retrieve cached search/fetch results" },
   { name: "subagent", register: subagent, desc: "Delegate tasks to isolated subagents (single/parallel/chain)" },

@@ -1,7 +1,7 @@
 {
   "name": "pi-tools",
   "version": "1.0.0",
-  "description": "Unified pi tools: web search, code search, image analysis, content fetch — all self-hosted, no API keys",
+  "description": "Unified Pi tools: web search, code search, content fetch, and subagents — all self-hosted, no API keys",
   "keywords": [
     "pi-package"
   ],

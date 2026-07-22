@@ -35,58 +35,6 @@ const theme: Theme = {
   bold: (text: string) => text,
 };
 
-// ─── analyze_image renderResult ───
-
-// Extract renderResult logic by importing the module and capturing via registerTool mock
-// Since the tool is registered via pi.registerTool(), we capture the definition
-
-function getAnalyzeImageRenderers() {
-  let renderCall: Function | undefined;
-  let renderResult: Function | undefined;
-
-  // We need to dynamically import after mocks are set up
-  // Instead, replicate the render logic directly from the source for testing
-  // This ensures we test the exact same logic
-
-  return { renderCall, renderResult };
-}
-
-// Test renderResult logic directly (extracted from analyze_image.ts)
-function analyzeImageRenderResult(
-  result: { content: { type: string; text: string }[]; details?: any },
-  opts: { expanded?: boolean; isPartial?: boolean },
-  thm: Theme,
-) {
-  if (opts.isPartial) return new (Text as any)(thm.fg("warning", "Analyzing..."), 0, 0);
-
-  const details = result.details as { mime?: string; error?: string } | undefined;
-  if (details?.error) return new (Text as any)(thm.fg("error", `Error: ${details.error}`), 0, 0);
-
-  const content = result.content[0];
-  const text = content?.type === "text" ? content.text : "";
-  const lineCount = text.split("\n").length;
-  const sizeKB = (Buffer.byteLength(text, "utf8") / 1024).toFixed(1);
-
-  let display = thm.fg("success", `${lineCount} lines`) + thm.fg("dim", ` (${sizeKB}KB)`);
-  if (details?.mime) display += thm.fg("dim", ` · ${details.mime}`);
-
-  if (opts.expanded) {
-    const preview = text.split("\n").slice(0, 15).join("\n");
-    display += `\n${thm.fg("toolOutput", preview)}`;
-    if (lineCount > 15) display += `\n${thm.fg("muted", `... ${lineCount - 15} more lines`)}`;
-  }
-
-  return new (Text as any)(display, 0, 0);
-}
-
-function analyzeImageRenderCall(args: any, thm: Theme) {
-  const path = typeof args.image_path === "string" ? args.image_path : "";
-  const q = typeof args.question === "string" ? args.question.trim() : "";
-  let text = thm.fg("toolTitle", thm.bold("image ")) + thm.fg("accent", path.slice(0, 60));
-  if (q) text += thm.fg("dim", ` "${q.slice(0, 40)}"`);
-  return new (Text as any)(text, 0, 0);
-}
-
 // ─── get_search_content renderResult ───
 
 function getSearchContentRenderResult(
@@ -132,71 +80,6 @@ function getSearchContentRenderCall(args: any, thm: Theme) {
 }
 
 // ─── Tests ───
-
-describe("analyze_image renderResult", () => {
-  it("shows loading state when partial", () => {
-    const result = { content: [{ type: "text", text: "" }], details: {} };
-    const rendered = analyzeImageRenderResult(result, { isPartial: true }, theme);
-    expect(rendered.content).toBe("Analyzing...");
-  });
-
-  it("shows error state", () => {
-    const result = { content: [{ type: "text", text: "" }], details: { error: "Model not found" } };
-    const rendered = analyzeImageRenderResult(result, {}, theme);
-    expect(rendered.content).toContain("Error: Model not found");
-  });
-
-  it("shows line count and size in collapsed view", () => {
-    const text = "Line 1\nLine 2\nLine 3";
-    const result = { content: [{ type: "text", text }], details: { mime: "image/png" } };
-    const rendered = analyzeImageRenderResult(result, {}, theme);
-    expect(rendered.content).toContain("3 lines");
-    expect(rendered.content).toContain("KB)");
-    expect(rendered.content).toContain("image/png");
-  });
-
-  it("shows preview in expanded view with <= 15 lines", () => {
-    const lines = Array.from({ length: 10 }, (_, i) => `Line ${i + 1}`);
-    const result = { content: [{ type: "text", text: lines.join("\n") }], details: {} };
-    const rendered = analyzeImageRenderResult(result, { expanded: true }, theme);
-    expect(rendered.content).toContain("Line 1");
-    expect(rendered.content).toContain("Line 10");
-    expect(rendered.content).not.toContain("more lines");
-  });
-
-  it("truncates preview at 15 lines in expanded view", () => {
-    const lines = Array.from({ length: 20 }, (_, i) => `Line ${i + 1}`);
-    const result = { content: [{ type: "text", text: lines.join("\n") }], details: {} };
-    const rendered = analyzeImageRenderResult(result, { expanded: true }, theme);
-    expect(rendered.content).toContain("Line 15");
-    expect(rendered.content).not.toContain("Line 16");
-    expect(rendered.content).toContain("... 5 more lines");
-  });
-
-  it("omits mime when not provided", () => {
-    const result = { content: [{ type: "text", text: "hello" }], details: {} };
-    const rendered = analyzeImageRenderResult(result, {}, theme);
-    expect(rendered.content).not.toContain("·");
-  });
-});
-
-describe("analyze_image renderCall", () => {
-  it("shows image path", () => {
-    const rendered = analyzeImageRenderCall({ image_path: "/tmp/photo.png" }, theme);
-    expect(rendered.content).toContain("image");
-    expect(rendered.content).toContain("/tmp/photo.png");
-  });
-
-  it("shows question when provided", () => {
-    const rendered = analyzeImageRenderCall({ image_path: "/tmp/photo.png", question: "What is this?" }, theme);
-    expect(rendered.content).toContain("What is this?");
-  });
-
-  it("handles missing question", () => {
-    const rendered = analyzeImageRenderCall({ image_path: "/tmp/photo.png" }, theme);
-    expect(rendered.content).not.toContain('"');
-  });
-});
 
 describe("get_search_content renderResult", () => {
   it("shows loading state when partial", () => {

@@ -1,6 +1,6 @@
 # 📦 pi-tools — `lib/` Library Documentation
 
-The `lib/` directory contains TypeScript modules (~30 exports) providing platform utilities for pi-tools: agent management, HTTP calls, search, image processing, display formatting, and more. Below is a brief description of each module.
+The `lib/` directory contains TypeScript modules providing platform utilities for pi-tools: agent management, HTTP calls, search, display formatting, and more. Below is a brief description of each module.
 
 ---
 
@@ -32,11 +32,9 @@ Reads and caches configuration from `~/.pi/tools.json`. Provides convenience get
 
 | Export | Type | Description |
 |--------|------|-------------|
-| `ToolsConfig` | interface | Config file structure: `searxng`, optional `search` broker settings, `vision`, `agents`, `allow`, `deny` |
 | `loadConfig` | function | Reads & parses `tools.json` (no cache) |
 | `getSearXNGUrl` | function | Returns SearXNG URL (default `http://127.0.0.1:8080`) |
 | `getSearchConfig` | function | Returns optional broker/queue/cache settings |
-| `getVisionModel` | function | Returns vision model (format `provider/modelId`) from config |
 | `getAgentModelConfig` | function | Merges agent model/thinking config from `tools.json` + agent frontmatter |
 | `isToolAllowed` | function | Checks whether a tool is allowed to register: allowlist > denylist > all |
 
@@ -67,28 +65,11 @@ Formatting functions used in the TUI for human-friendly number display.
 
 ---
 
-## 🖼️ `image.ts` — Image Loading
-
-| Export | Type | Description |
-|--------|------|-------------|
-| `loadImageBytes` | async function | Accepts source (data URI, URL, or local path), loads & validates (max 20MB), auto-resizes (2000x2000 max), returns `{base64, mime, originalWidth, originalHeight, width, height, wasResized}` |
-
----
-
 ## 🚀 `invoke.ts` — Child Process Invocation
 
 | Export | Type | Description |
 |--------|------|-------------|
 | `getPiInvocation` | function | Determines command + args to spawn a child pi process. Handles direct `node`/`bun` execution, `bun` virtual script, and fallback to `pi` binary |
-
----
-
-## 🔮 `vision.ts` — Pi-configured Vision API
-
-| Export | Type | Description |
-|--------|------|-------------|
-| `VisionResult` | interface | `{text, provider, modelId}` — result from vision model |
-| `callVision` | async function | Calls Pi-configured vision model to analyze images. Supports OpenAI, Anthropic, Google APIs. Auto-resolves model from config |
 
 ---
 
@@ -143,13 +124,11 @@ Stores search/fetch results for later retrieval via the `get_search_content` too
 ## 📊 Data Flow Overview
 
 ```
-tools.json  ──► config.ts ──► vision.ts, search.ts, register tools
+tools.json  ──► config.ts ──► search.ts, register tools
                   │
 agent .md   ──► agents.ts ──► discoverAgents() → subagent registry
                   │
 web URLs    ──► fetch.ts ──► contentStore (store.ts) ──► get_search_content tool
-                  │
-images      ──► image.ts ──► vision.ts ──► analyze_image tool
                   │
 output      ──► truncate.ts ──► format.ts ──► TUI display
 ```

@@ -33,7 +33,6 @@ export interface ToolsConfig {
   searxng?: string;
   /** Optional local-only search broker settings. */
   search?: SearchConfig;
-  vision?: { defaultModel: string }; // Pi-configured vision model (provider/modelId)
   /** Per-agent model configuration. Key = agent name, value = model config. */
   agents?: Record<string, AgentModelConfig>;
   /** Allowlist: if non-empty, ONLY these tools are registered (deny is ignored) */
@@ -87,10 +86,6 @@ export function getSearXNGUrl(): string {
 /** Return the optional search settings, including the broker URL. */
 export function getSearchConfig(): SearchConfig {
   return { ...(getConfig().search ?? {}) };
-}
-
-export function getVisionModel(): string {
-  return getConfig().vision?.defaultModel || "";
 }
 
 /** Get the merged agent model config: tools.json config → agent frontmatter (for model & thinking fallthrough) */
