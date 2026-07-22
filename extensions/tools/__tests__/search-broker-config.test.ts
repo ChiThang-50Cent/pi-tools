@@ -5,7 +5,7 @@ const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
   engines?: { node?: string };
   scripts?: { [name: string]: string };
 };
-const readme = readFileSync("README.md", "utf8");
+const searchDocs = readFileSync("docs/searxng.md", "utf8");
 const unit = readFileSync("systemd/pi-tools-search-broker.service", "utf8");
 
 describe("search broker deployment configuration", () => {
@@ -16,9 +16,9 @@ describe("search broker deployment configuration", () => {
   });
 
   it("documents separate upstream and broker wait deadlines", () => {
-    expect(readme).toContain("brokerWaitTimeoutMs");
-    expect(readme).toContain("search.timeoutMs");
-    expect(readme).toContain("systemctl --user enable --now pi-tools-search-broker.service");
+    expect(searchDocs).toContain("brokerWaitTimeoutMs");
+    expect(searchDocs).toContain("search.timeoutMs");
+    expect(searchDocs).toContain("systemctl --user enable --now pi-tools-search-broker.service");
   });
 
   it("uses a direct Node systemd process with graceful restart behavior", () => {
