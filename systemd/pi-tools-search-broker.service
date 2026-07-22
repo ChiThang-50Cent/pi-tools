@@ -1,0 +1,17 @@
+[Unit]
+Description=pi-tools local SearXNG search broker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+# Keep the checkout at %h/code/pi-tools, or edit both paths before installing.
+WorkingDirectory=%h/code/pi-tools
+ExecStart=/usr/bin/node extensions/tools/lib/search_broker.ts
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGTERM
+TimeoutStopSec=15s
+
+[Install]
+WantedBy=default.target

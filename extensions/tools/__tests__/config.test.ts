@@ -64,6 +64,7 @@ describe("config", () => {
     it("reads all config fields", () => {
       const config: ToolsConfig = {
         searxng: "http://search:8080",
+        search: { brokerUrl: "http://127.0.0.1:8787", minIntervalMs: 25, queueSize: 3, timeoutMs: 15000, brokerWaitTimeoutMs: 120000 },
         vision: { defaultModel: "opencode-go/kimi-k2.6" },
         agents: { explore: { model: "gpt-4", thinking: "high" } },
         allow: ["web_search", "fetch_content"],
@@ -73,6 +74,10 @@ describe("config", () => {
       setupConfig(config);
       const result = loadConfig();
       expect(result.searxng).toBe("http://search:8080");
+      expect(result.search?.brokerUrl).toBe("http://127.0.0.1:8787");
+      expect(result.search?.queueSize).toBe(3);
+      expect(result.search?.timeoutMs).toBe(15000);
+      expect(result.search?.brokerWaitTimeoutMs).toBe(120000);
       expect(result.vision?.defaultModel).toBe("opencode-go/kimi-k2.6");
       expect(result.agents?.explore?.model).toBe("gpt-4");
       expect(result.allow).toEqual(["web_search", "fetch_content"]);

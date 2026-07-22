@@ -1,6 +1,6 @@
 # 📦 pi-tools — `lib/` Library Documentation
 
-The `lib/` directory contains **12 TypeScript modules** (~30 exports) providing platform utilities for pi-tools: agent management, HTTP calls, search, image processing, display formatting, and more. Below is a brief description of each module.
+The `lib/` directory contains TypeScript modules (~30 exports) providing platform utilities for pi-tools: agent management, HTTP calls, search, image processing, display formatting, and more. Below is a brief description of each module.
 
 ---
 
@@ -32,9 +32,10 @@ Reads and caches configuration from `~/.pi/tools.json`. Provides convenience get
 
 | Export | Type | Description |
 |--------|------|-------------|
-| `ToolsConfig` | interface | Config file structure: `searxng`, `vision`, `agents`, `allow`, `deny` |
+| `ToolsConfig` | interface | Config file structure: `searxng`, optional `search` broker settings, `vision`, `agents`, `allow`, `deny` |
 | `loadConfig` | function | Reads & parses `tools.json` (no cache) |
 | `getSearXNGUrl` | function | Returns SearXNG URL (default `http://127.0.0.1:8080`) |
+| `getSearchConfig` | function | Returns optional broker/queue/cache settings |
 | `getVisionModel` | function | Returns vision model (format `provider/modelId`) from config |
 | `getAgentModelConfig` | function | Merges agent model/thinking config from `tools.json` + agent frontmatter |
 | `isToolAllowed` | function | Checks whether a tool is allowed to register: allowlist > denylist > all |
@@ -96,9 +97,20 @@ Formatting functions used in the TUI for human-friendly number display.
 | Export | Type | Description |
 |--------|------|-------------|
 | `SearXNGResult` | interface | Structure of one result: `title`, `url`, `content?`, `engine?` |
-| `searchSearXNG` | async function | Calls SearXNG `/search?format=json` with query, categories, limit (max 50). Timeout 15s |
+| `searchSearXNG` | async function | Calls SearXNG directly or through the configured local broker; caches complete responses, applies caller limits, and reports HTTP/engine diagnostics |
+| `SearXNGHttpError` | class | Typed non-OK response with status, bounded body, and Retry-After details |
+| `formatUnresponsiveEngines` | function | Formats SearXNG partial-result engine warnings |
 
 ---
+
+## 🛰️ `search_broker.ts` — Local Search Broker
+
+A standalone Node-built-in HTTP service for cross-process FIFO throttling, cache,
+single-flight deduplication, bounded retries, and shared 429 cooldowns. It binds
+to loopback by default and is launched with `npm run search:broker`.
+Its loopback-only `/health` endpoint reports queue depth, in-flight/cache counts,
+cooldown remaining, cache hit/miss totals, deduplicated waiter totals, and
+upstream request/error totals without query data.
 
 ## 💾 `store.ts` — In-Memory Store
 

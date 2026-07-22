@@ -7,6 +7,9 @@
   ],
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
   "pi": {
     "extensions": [
       "./extensions/tools"
@@ -15,6 +18,7 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
+    "search:broker": "node extensions/tools/lib/search_broker.ts",
     "bench:subagent": "node scripts/benchmark-subagent.mjs"
   },
   "devDependencies": {

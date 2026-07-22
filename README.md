@@ -112,10 +112,10 @@ Use `returnMode: "inline"` only when the root truly needs the full raw output in
 ### 1. Pi Coding Agent
 
 ```bash
-# Official installer (auto-installs Node.js 22 + Pi)
+# Official installer (auto-installs Node.js 22 + Pi; use >=22.18 for the broker)
 curl -fsSL https://pi.dev/install.sh | sh
 
-# Or via npm (requires Node.js >= 22)
+# Or via npm (the broker requires Node.js >= 22.18 for native TypeScript stripping)
 npm install -g @earendil-works/pi-coding-agent
 ```
 
@@ -161,7 +161,46 @@ See [SearXNG docs](https://docs.searxng.org/admin/installation-searxng.html). Re
 
 > **Tip:** If SearXNG runs on a different host/port, override in `~/.pi/tools.json` (see [Configuration](#configuration)).
 
-### 3. Vision Model (optional)
+### 3. Optional local search broker
+
+For multiple Pi processes/subagents, run the broker so one loopback service owns
+throttling, caching, deduplication, retries, and 429 cooldowns:
+
+```bash
+npm run search:broker
+```
+
+The broker binds to `127.0.0.1:8787` by default and calls the SearXNG URL from
+`searxng` in `~/.pi/tools.json`. It accepts only loopback bind addresses. Check
+it with `curl http://127.0.0.1:8787/health`. The loopback-only response keeps
+`ok` and `status` and adds queue/in-flight/cache counts, cooldown remaining,
+cache hit/miss totals, deduplicated waiter totals, and upstream request/error
+totals; it never includes query text or URLs.
+
+The broker also accepts `PI_SEARXNG_URL`, `PI_SEARCH_BROKER_PORT`,
+`PI_SEARCH_MIN_INTERVAL_MS`, `PI_SEARCH_QUEUE_SIZE`, `PI_SEARCH_TIMEOUT_MS`,
+`PI_SEARCH_MAX_RETRIES`, `PI_SEARCH_RETRY_BASE_MS`, and `PI_SEARCH_RETRY_MAX_MS`,
+or matching CLI flags such as `--searxng` and `--port`.
+
+#### Optional systemd user service
+
+The template at `systemd/pi-tools-search-broker.service` assumes the repository
+is checked out at `%h/code/pi-tools` and Node is installed at `/usr/bin/node`.
+Edit those paths if needed, then install and manage it without root privileges:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp systemd/pi-tools-search-broker.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now pi-tools-search-broker.service
+systemctl --user status pi-tools-search-broker.service
+```
+
+The unit runs Node directly, stops gracefully with SIGTERM, and restarts only
+when the broker exits unsuccessfully. Do not use `sudo` or start a second broker
+on the same port.
+
+### 4. Vision Model (optional)
 
 `analyze_image` uses a vision model configured in Pi. Any provider already set up in Pi works (OpenAI, Anthropic, Google, OpenCode, etc).
 
@@ -176,6 +215,15 @@ No extra installation needed — just configure the model in `~/.pi/tools.json`.
 ```json
 {
   "searxng": "http://127.0.0.1:8080",
+  "search": {
+    "brokerUrl": "http://127.0.0.1:8787",
+    "minIntervalMs": 1000,
+    "queueSize": 4,
+    "cacheTtlMs": 300000,
+    "timeoutMs": 15000,
+    "brokerWaitTimeoutMs": 120000,
+    "maxRetries": 2
+  },
   "vision": { "defaultModel": "opencode-go/kimi-k2.6" },
   "agents": {
     "general": { "model": "opencode-go/deepseek-v4-pro", "thinking": "medium" },
@@ -186,12 +234,28 @@ No extra installation needed — just configure the model in `~/.pi/tools.json`.
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `searxng` | `http://127.0.0.1:8080` | SearXNG URL |
+| `searxng` | `http://127.0.0.1:8080` | SearXNG URL; existing string configuration remains supported |
+| `search.brokerUrl` | — | Local broker URL; unset keeps direct SearXNG mode |
+| `search.minIntervalMs` | `1000` | Global interval used by direct mode/broker |
+| `search.queueSize` | `4` | Maximum queued searches; existing explicit values remain supported |
+| `search.cacheTtlMs` | `300000` | Successful response cache TTL |
+| `search.timeoutMs` | `15000` | Upstream SearXNG request timeout; in broker mode this is owned by the broker |
+| `search.brokerWaitTimeoutMs` | `120000` | Caller-to-broker HTTP wait deadline; used only when `brokerUrl` is set |
+| `search.maxRetries` | `2` | Broker retries for 502/503/504/network failures |
 | `vision.defaultModel` | — | Vision model (`provider/modelId`) |
 | `agents.<name>.model` | — | Override model for agent |
 | `agents.<name>.thinking` | — | Thinking level: `off` → `xhigh` |
 | `allow` | `[]` | Whitelist tools (deny ignored) |
 | `deny` | `[]` | Blacklist tools |
+
+`search.timeoutMs` is the per-attempt upstream deadline and `search.brokerWaitTimeoutMs`
+is the caller's FIFO wait deadline; they are intentionally separate. With the
+defaults above, five broker flights (one active plus four queued) fit within
+about 80 seconds before retries or a rate-limit cooldown. If you increase
+`queueSize`, set `brokerWaitTimeoutMs` above
+`(queueSize + 1) * (timeoutMs + minIntervalMs)` and allow extra time for retries
+and cooldowns. The broker queue default is deliberately small to avoid long
+stale FIFO waits; explicit existing `queueSize` values are not rewritten.
 
 ---
 
@@ -490,7 +554,14 @@ extensions/tools/
 
 ## Troubleshooting
 
-**SearXNG no results:** Check `docker ps | grep searxng`, try `curl` directly
+**SearXNG no results:** Check `docker ps | grep searxng`, try `curl` directly. If
+using the broker, check `curl http://127.0.0.1:8787/health` and inspect the
+search response warnings for unresponsive engines.
+
+**429 / Retry-After:** Keep the broker running and wait for its shared cooldown;
+do not start several broker instances on the same configured port. Permanent
+4xx errors are not retried; 502/503/504 and network failures are retried a
+bounded number of times.
 
 **Tools not appearing:** Run `/reload`, check `allow`/`deny` config, check `/tools` UI
 

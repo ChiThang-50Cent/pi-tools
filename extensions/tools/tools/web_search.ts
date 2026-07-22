@@ -2,8 +2,8 @@
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { searchSearXNG } from "../lib/search.js";
-import { getSearXNGUrl } from "../lib/config.js";
+import { formatUnresponsiveEngines, searchSearXNG } from "../lib/search.js";
+import { getSearchConfig, getSearXNGUrl } from "../lib/config.js";
 
 export function registerWebSearch(pi: ExtensionAPI): void {
   pi.registerTool({
@@ -11,16 +11,18 @@ export function registerWebSearch(pi: ExtensionAPI): void {
     label: "Web Search",
     description:
       "Search the web for real-time or external information.\n\n" +
-      "You MUST use this tool whenever you need up-to-date information, " +
-      "facts you're unsure about, documentation, news, or any knowledge " +
-      "beyond your training data. Works like Google Search.",
+      "Use this tool when current information, facts beyond your training data, " +
+      "documentation, or news is necessary. Works like Google Search.",
     promptSnippet: "Search the web via SearXNG",
     promptGuidelines: [
-      "Use web_search when you need real-time information, current events, or facts beyond your training data.",
+      "Use web_search when current or external information is necessary.",
+      "Reuse relevant results already available before issuing another search.",
+      "Prefer one well-formed query and avoid equivalent queries in parallel.",
+      "After a rate-limit response, wait for the stated cooldown; do not retry during it.",
       "For code/API questions, use code_search instead.",
     ],
     parameters: Type.Object({
-      query: Type.String({ description: "Search query (3-5 keywords for best results)" }),
+      query: Type.String({ description: "A focused search query (3-5 keywords often work well)" }),
       max_results: Type.Optional(Type.Integer({ default: 10, description: "Max results (1-20)" })),
       category: Type.Optional(Type.String({ default: "general", description: "general, news, images, videos, it, science, files" })),
     }),
@@ -33,25 +35,37 @@ export function registerWebSearch(pi: ExtensionAPI): void {
     },
 
     renderResult(result, _opts, theme) {
-      const d = result.details as { count?: number; error?: string };
+      const d = result.details as { count?: number; error?: string; warnings?: string[] };
       if (d?.error) return new Text(theme.fg("error", `Error: ${d.error}`), 0, 0);
       const count = d?.count ?? 0;
-      return new Text(theme.fg("success", `${count} result${count !== 1 ? "s" : ""}`), 0, 0);
+      const warning = d?.warnings?.length ? theme.fg("warning", ` · ${d.warnings.length} engine warning${d.warnings.length === 1 ? "" : "s"}`) : "";
+      return new Text(theme.fg("success", `${count} result${count !== 1 ? "s" : ""}`) + warning, 0, 0);
     },
 
     async execute(_id, params, signal) {
       const baseUrl = getSearXNGUrl();
+      const searchConfig = getSearchConfig();
       const maxResults = Math.min(params.max_results ?? 10, 20);
 
       try {
         const data = await searchSearXNG(baseUrl, params.query, {
+          ...searchConfig,
           categories: params.category,
           limit: maxResults,
           signal,
         });
 
         const results = data.results;
-        if (!results.length) return { content: [{ type: "text", text: `No results for: ${params.query}` }], details: { count: 0 } };
+        const warnings = formatUnresponsiveEngines(data);
+        const warningText = warnings.length
+          ? `Warnings (partial results):\n${warnings.map((warning) => `- ${warning}`).join("\n")}`
+          : "";
+        if (!results.length) {
+          const text = warningText
+            ? `No results for: ${params.query}\n\n${warningText}`
+            : `No results for: ${params.query}`;
+          return { content: [{ type: "text", text }], details: { count: 0, warnings, query: params.query } };
+        }
 
         const lines = [`Search results for: ${params.query}\n`];
         results.forEach((r, i) => {
@@ -60,13 +74,15 @@ export function registerWebSearch(pi: ExtensionAPI): void {
           if (r.engine) lines.push(`   Source: ${r.engine}`);
           lines.push("");
         });
+        if (warningText) lines.push(warningText);
 
         return {
           content: [{ type: "text", text: lines.join("\n").trim() }],
-          details: { count: results.length, query: params.query },
+          details: { count: results.length, query: params.query, warnings },
         };
       } catch (e) {
-        return { content: [{ type: "text", text: `Search failed: ${e}` }], details: { error: String(e) } };
+        const message = e instanceof Error ? e.message : String(e);
+        return { content: [{ type: "text", text: `Search failed: ${message}` }], details: { error: message } };
       }
     },
   });

@@ -7,8 +7,32 @@ import type { AgentModelConfig } from "./types.js";
 const CONFIG_PATH = join(homedir(), ".pi", "tools.json");
 const SETTINGS_PATH = join(homedir(), ".pi", "agent", "settings.json");
 
+export interface SearchConfig {
+  /** Local broker URL. When unset, search calls SearXNG directly. */
+  brokerUrl?: string;
+  /** Minimum time between upstream requests in direct mode/broker mode. */
+  minIntervalMs?: number;
+  /** Maximum number of distinct queued searches. */
+  queueSize?: number;
+  /** Successful response cache lifetime. */
+  cacheTtlMs?: number;
+  /** Upstream SearXNG request timeout. In broker mode this is owned by the broker. */
+  timeoutMs?: number;
+  /** Maximum time a caller waits for the local broker HTTP response. */
+  brokerWaitTimeoutMs?: number;
+  /** Broker upstream retries for transient failures. */
+  maxRetries?: number;
+  /** Initial broker retry delay. */
+  retryBaseMs?: number;
+  /** Maximum broker retry delay. */
+  retryMaxMs?: number;
+}
+
 export interface ToolsConfig {
-  searxng?: string;    // SearXNG search URL
+  /** SearXNG search URL. Kept as a string for backwards compatibility. */
+  searxng?: string;
+  /** Optional local-only search broker settings. */
+  search?: SearchConfig;
   vision?: { defaultModel: string }; // Pi-configured vision model (provider/modelId)
   /** Per-agent model configuration. Key = agent name, value = model config. */
   agents?: Record<string, AgentModelConfig>;
@@ -58,6 +82,11 @@ function getConfig(): ToolsConfig {
 
 export function getSearXNGUrl(): string {
   return getConfig().searxng?.replace(/\/+$/, "") || "http://127.0.0.1:8080";
+}
+
+/** Return the optional search settings, including the broker URL. */
+export function getSearchConfig(): SearchConfig {
+  return { ...(getConfig().search ?? {}) };
 }
 
 export function getVisionModel(): string {
