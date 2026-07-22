@@ -480,8 +480,9 @@ async function fetchBroker(
   let body = "";
   try {
     if (typeof response.text === "function") {
-      body = boundedBody(await response.text());
-      payload = body ? JSON.parse(body) as Record<string, unknown> : {};
+      const rawBody = await response.text();
+      body = boundedBody(rawBody);
+      payload = rawBody ? JSON.parse(rawBody) as Record<string, unknown> : {};
     } else {
       payload = await response.json() as Record<string, unknown>;
     }

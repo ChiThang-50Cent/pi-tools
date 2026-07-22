@@ -393,6 +393,19 @@ describe("local search broker", () => {
     expect(second.results).toHaveLength(5);
   });
 
+  it("preserves large successful broker responses", async () => {
+    const data = searchResponse(1);
+    data.results[0].content = "x".repeat(10_000);
+    const broker = createSearchBroker({ port: 0, fetch: vi.fn(async () => response(data)), minIntervalMs: 0 });
+    brokers.push(broker);
+    const address = await broker.start();
+
+    const result = await searchSearXNG("http://unused", "large broker result", { brokerUrl: address.url });
+
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0].content).toHaveLength(10_000);
+  });
+
   it("does not retry permanent errors but retries bounded transient/network failures", async () => {
     const permanentUpstream = vi.fn().mockResolvedValue(response({ error: "bad request" }, 400));
     const permanent = createSearchBroker({ port: 0, fetch: permanentUpstream, minIntervalMs: 0, maxRetries: 3, retryJitterMs: 0 });
