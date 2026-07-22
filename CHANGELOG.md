@@ -14,6 +14,7 @@
 - Offline tests for benchmark, spawn, handoff, output, and descriptor behavior.
 
 ### Changed
+- Moved setup and per-tool documentation from the root README into `docs/`.
 - `web_search` and `code_search` can use the shared local search broker and report partial-engine warnings.
 - Added compact root return modes for `subagent`: `auto`, `inline`, `summary`, `artifact`.
 - Added deterministic chain handoff compaction with `chainHandoffMode` and `chainHandoffMaxChars`.
