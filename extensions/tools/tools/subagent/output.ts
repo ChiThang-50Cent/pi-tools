@@ -96,7 +96,21 @@ export function writeResultArtifact(
   const root = getArtifactRoot();
   const safeName = result.agent.replace(/[^\w.-]+/g, "_");
   const suffix = result.step !== undefined ? `-step${result.step}` : index !== undefined ? `-${index}` : "";
-  const filePath = path.join(root, `${safeName}${suffix}.txt`);
+  const baseName = `${safeName}${suffix}`;
+  let collisionIndex = 0;
+  let filePath: string;
+  while (true) {
+    const collisionSuffix = collisionIndex === 0 ? "" : `-${collisionIndex}`;
+    filePath = path.join(root, `${baseName}${collisionSuffix}.txt`);
+    try {
+      const fd = fs.openSync(filePath, "wx");
+      fs.closeSync(fd);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      collisionIndex++;
+    }
+  }
 
   const lines: string[] = [];
   lines.push(`=== Subagent Artifact ===`);
@@ -243,6 +257,37 @@ export function buildChainRootContent(
   const compact = compactText(finalOutput, summaryMaxChars);
   let text = `Chain completed (${results.length} step${results.length > 1 ? "s" : ""})\n\n`;
   text += `**Final output:**\n${compact.text}`;
+
+  if (returnMode === "artifact" && artifacts.length > 0) {
+    text += `\n\n**Artifacts (full output):**`;
+    for (const a of artifacts) {
+      text += `\n- \`${a.path}\` (${a.bytes} bytes)`;
+    }
+  }
+
+  return text;
+}
+
+/** Build root-facing content when a chain stops on a failed step. */
+export function buildChainFailureRootContent(
+  results: SingleResult[],
+  returnMode: "inline" | "summary" | "artifact",
+  artifacts: ArtifactEntry[],
+  summaryMaxChars: number = DEFAULT_SUMMARY_MAX_CHARS,
+): string {
+  if (results.length === 0) return "(no output)";
+
+  const failedResult = results[results.length - 1];
+  const step = failedResult.step ?? results.length;
+  const failureOutput = getResultOutput(failedResult);
+  const prefix = `Chain stopped at step ${step} (${failedResult.agent}): `;
+
+  if (returnMode === "inline") {
+    return `${prefix}${failureOutput}`;
+  }
+
+  const compact = compactText(failureOutput, summaryMaxChars);
+  let text = `${prefix}${compact.text}`;
 
   if (returnMode === "artifact" && artifacts.length > 0) {
     text += `\n\n**Artifacts (full output):**`;

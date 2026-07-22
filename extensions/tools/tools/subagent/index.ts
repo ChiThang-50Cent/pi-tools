@@ -42,6 +42,7 @@ import {
   buildSingleRootContent,
   buildParallelRootContent,
   buildChainRootContent,
+  buildChainFailureRootContent,
 } from "./output.js";
 import { buildDelegatedTask, DEFAULT_CONTEXT_MAX_CHARS } from "./handoff.js";
 import type { ArtifactEntry } from "./types.js";
@@ -231,10 +232,36 @@ export default function (pi: ExtensionAPI) {
 
           const isError = isFailedResult(result);
           if (isError) {
-            const errorMsg = getResultOutput(result);
+            const effectiveChainMode = getEffectiveReturnMode(
+              returnMode, "chain",
+              results.map((r) => getResultOutput(r).length),
+              artifactThresholdChars,
+            );
+
+            let chainArtifacts: ArtifactEntry[] = [];
+            if (effectiveChainMode === "artifact") {
+              const { artifacts } = writeArtifactsForResults(
+                results,
+                artifactThresholdChars,
+                returnMode === "artifact",
+              );
+              chainArtifacts = artifacts;
+            }
+
+            const chainContent = buildChainFailureRootContent(
+              results,
+              effectiveChainMode,
+              chainArtifacts,
+              summaryMaxChars,
+            );
+
             return {
-              content: [{ type: "text", text: `Chain stopped at step ${i + 1} (${step.agent}): ${errorMsg}` }],
-              details: makeDetails("chain")(results),
+              content: [{ type: "text", text: chainContent }],
+              details: makeDetails("chain")(results, {
+                returnMode: effectiveChainMode,
+                artifacts: chainArtifacts,
+                summary: effectiveChainMode !== "inline" ? chainContent : undefined,
+              }),
               isError: true,
             };
           }

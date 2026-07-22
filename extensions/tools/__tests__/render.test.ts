@@ -23,6 +23,7 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({}));
 // We need to extract renderCall and renderResult from the tools.
 // Since they're inside registerTool, we'll import the modules and capture them.
 import { Text } from "@earendil-works/pi-tui";
+import { renderResult as renderSubagentResult } from "../tools/subagent/render.js";
 
 type Theme = {
   fg: (color: string, text: string) => string;
@@ -80,6 +81,62 @@ function getSearchContentRenderCall(args: any, thm: Theme) {
 }
 
 // ─── Tests ───
+
+describe("subagent renderResult output contract", () => {
+  it("renders the summary parent-facing content instead of full details", () => {
+    const rendered = renderSubagentResult(
+      {
+        content: [{ type: "text", text: "compact summary" }],
+        details: {
+          mode: "single",
+          returnMode: "summary",
+          results: [{
+            agent: "test-agent",
+            agentSource: "builtin",
+            task: "test",
+            exitCode: 0,
+            messages: [{ role: "assistant", content: [{ type: "text", text: "full child output" }] }],
+            stderr: "",
+            usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+          }],
+        },
+      },
+      { expanded: true },
+      theme,
+      undefined,
+    ) as any;
+
+    expect(rendered.content).toBe("compact summary");
+    expect(rendered.content).not.toContain("full child output");
+  });
+
+  it("renders the artifact parent-facing content instead of full details", () => {
+    const rendered = renderSubagentResult(
+      {
+        content: [{ type: "text", text: "full output saved to artifact\nArtifact: /tmp/result.txt" }],
+        details: {
+          mode: "chain",
+          returnMode: "artifact",
+          results: [{
+            agent: "test-agent",
+            agentSource: "builtin",
+            task: "test",
+            exitCode: 0,
+            messages: [{ role: "assistant", content: [{ type: "text", text: "large full child output" }] }],
+            stderr: "",
+            usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+          }],
+        },
+      },
+      { expanded: false },
+      theme,
+      undefined,
+    ) as any;
+
+    expect(rendered.content).toContain("Artifact: /tmp/result.txt");
+    expect(rendered.content).not.toContain("large full child output");
+  });
+});
 
 describe("get_search_content renderResult", () => {
   it("shows loading state when partial", () => {

@@ -107,6 +107,10 @@ export function renderResult(
   _context: unknown,
 ): Text | Container {
   const details = result.details as SubagentDetails | undefined;
+  if (details?.returnMode === "summary" || details?.returnMode === "artifact") {
+    const text = result.content[0];
+    return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);
+  }
   if (!details || details.results.length === 0) {
     const text = result.content[0];
     return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);

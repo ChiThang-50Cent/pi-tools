@@ -12,6 +12,7 @@ import {
   buildSingleRootContent,
   buildParallelRootContent,
   buildChainRootContent,
+  buildChainFailureRootContent,
 } from "../tools/subagent/output.js";
 import { zeroUsage } from "../tools/subagent/types.js";
 import type { SingleResult } from "../tools/subagent/types.js";
@@ -209,6 +210,15 @@ describe("writeResultArtifact", () => {
     expect(content).toContain("test output");
   });
 
+  it("writes repeated single invocations to distinct files", () => {
+    const first = writeResultArtifact(makeResult());
+    const second = writeResultArtifact(makeResult());
+
+    expect(second.path).not.toBe(first.path);
+    expect(fs.readFileSync(first.path, "utf8")).toContain("test output");
+    expect(fs.readFileSync(second.path, "utf8")).toContain("test output");
+  });
+
   it("writes to a temp directory", () => {
     const entry = writeResultArtifact(makeResult());
     expect(entry.path).toContain("pi-subagent-artifacts-");
@@ -335,6 +345,29 @@ describe("buildParallelRootContent", () => {
 });
 
 // ─── buildChainRootContent ───
+
+describe("buildChainFailureRootContent", () => {
+  it("compacts a large failure in summary mode", () => {
+    const failure = failedResult({ errorMessage: "failure-".repeat(1000), step: 2 });
+    const content = buildChainFailureRootContent([makeResult({ step: 1 }), failure], "summary", [], 20);
+
+    expect(content).toContain("Chain stopped at step 2");
+    expect(content).toContain("...[truncated]");
+    expect(content).not.toContain("failure-".repeat(1000));
+  });
+
+  it("writes and links full output in artifact mode", () => {
+    const failure = failedResult({ errorMessage: "failure-".repeat(1000), step: 2 });
+    const results = [makeResult({ step: 1 }), failure];
+    const { artifacts } = writeArtifactsForResults(results, 4000, true);
+    const content = buildChainFailureRootContent(results, "artifact", artifacts, 20);
+
+    expect(artifacts).toHaveLength(2);
+    expect(content).toContain("Artifacts (full output)");
+    expect(content).not.toContain("failure-".repeat(1000));
+    expect(fs.readFileSync(artifacts[1].path, "utf8")).toContain("failure-".repeat(1000));
+  });
+});
 
 describe("buildChainRootContent", () => {
   it("inline mode returns final output", () => {
