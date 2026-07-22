@@ -46,6 +46,9 @@ export const TaskItem = Type.Object({
   ),
   thinking: Type.Optional(ThinkingLevel),
   spawnMode: Type.Optional(SpawnMode),
+  timeoutMs: Type.Optional(
+    Type.Number({ description: "Wall-clock timeout in milliseconds for this task. Default: 900000 (15 minutes)." }),
+  ),
 });
 
 export const ChainItem = Type.Object({
@@ -66,6 +69,9 @@ export const ChainItem = Type.Object({
   ),
   thinking: Type.Optional(ThinkingLevel),
   spawnMode: Type.Optional(SpawnMode),
+  timeoutMs: Type.Optional(
+    Type.Number({ description: "Wall-clock timeout in milliseconds for this chain step. Default: 900000 (15 minutes)." }),
+  ),
 });
 
 export const AgentScopeSchema = StringEnum(["user", "project", "both"] as const, {
@@ -99,6 +105,9 @@ export const SubagentParams = Type.Object({
     }),
   ),
   thinking: Type.Optional(ThinkingLevel),
+  timeoutMs: Type.Optional(
+    Type.Number({ description: "Default wall-clock timeout in milliseconds for all subagent tasks. Default: 900000 (15 minutes). Per-task timeoutMs takes precedence." }),
+  ),
   returnMode: Type.Optional(ReturnMode),
   summaryMaxChars: Type.Optional(
     Type.Number({ description: "Max characters for summary/compact preview. Default: 1200.", default: 1200 }),

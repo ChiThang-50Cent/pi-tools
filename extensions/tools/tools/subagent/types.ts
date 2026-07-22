@@ -18,6 +18,8 @@ export function zeroUsage(): UsageStats {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 };
 }
 
+export type SubagentRunStatus = "running" | "completed" | "aborted" | "timed_out" | "failed";
+
 export interface SingleResult {
   agent: string;
   agentSource: "builtin" | "user" | "project" | "unknown";
@@ -40,6 +42,14 @@ export interface SingleResult {
   handoffContextChars?: number;
   /** Whether the handoff context was truncated before being sent. */
   handoffContextTruncated?: boolean;
+  /** Lifecycle state used while streaming progress updates. */
+  status?: SubagentRunStatus;
+  /** Human-readable current activity, e.g. "running tool: bash". */
+  activity?: string;
+  /** Elapsed execution time, refreshed by heartbeat updates. */
+  elapsedMs?: number;
+  /** Configured wall-clock timeout for this invocation. */
+  timeoutMs?: number;
 }
 
 export interface ArtifactEntry {

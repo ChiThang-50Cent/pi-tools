@@ -214,6 +214,7 @@ export default function (pi: ExtensionAPI) {
             step.spawnMode ?? params.spawnMode,
             contextChars > 0 ? contextChars : undefined,
             contextChars > 0 ? truncated : undefined,
+            step.timeoutMs ?? params.timeoutMs,
           );
           results.push(result);
 
@@ -322,6 +323,7 @@ export default function (pi: ExtensionAPI) {
             t.spawnMode ?? params.spawnMode,
             contextChars > 0 ? contextChars : undefined,
             contextChars > 0 ? truncated : undefined,
+            t.timeoutMs ?? params.timeoutMs,
           );
           allResults[index] = result;
           emitParallelUpdate();
@@ -377,6 +379,7 @@ export default function (pi: ExtensionAPI) {
           params.spawnMode,
           contextChars > 0 ? contextChars : undefined,
           contextChars > 0 ? truncated : undefined,
+          params.timeoutMs,
         );
         const isError = isFailedResult(result);
 

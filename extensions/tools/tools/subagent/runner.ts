@@ -1,5 +1,5 @@
 // ─── runner.ts ────── Subagent process spawning & streaming ──────────────
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -51,6 +51,36 @@ function resolveModelString(
 
 export type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
 
+export const DEFAULT_SUBAGENT_TIMEOUT_MS = 15 * 60 * 1000;
+const MAX_SUBAGENT_TIMEOUT_MS = 6 * 60 * 60 * 1000;
+const HEARTBEAT_MS = 5_000;
+const TERMINATION_GRACE_MS = 5_000;
+
+function clampTimeoutMs(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_SUBAGENT_TIMEOUT_MS;
+  return Math.min(MAX_SUBAGENT_TIMEOUT_MS, Math.max(1_000, Math.floor(value)));
+}
+
+function formatElapsed(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${seconds % 60}s`;
+}
+
+function signalProcessTree(proc: ChildProcess, signal: NodeJS.Signals): void {
+  if (!proc.pid) return;
+  try {
+    if (process.platform !== "win32") {
+      process.kill(-proc.pid, signal);
+    } else {
+      proc.kill(signal);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+  }
+}
+
 async function writePromptToTempFile(agentName: string, prompt: string): Promise<{ dir: string; filePath: string }> {
   const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "pi-subagent-"));
   const safeName = agentName.replace(/[^\w.-]+/g, "_");
@@ -77,6 +107,7 @@ export async function runSingleAgent(
   spawnModeOverride?: string,
   handoffContextChars?: number,
   handoffContextTruncated?: boolean,
+  timeoutMs?: number,
 ): Promise<SingleResult> {
   const agent = agents.find((a) => a.name === agentName);
 
@@ -133,16 +164,35 @@ export async function runSingleAgent(
     spawnNotes: spawnPlan.notes.length > 0 ? spawnPlan.notes : undefined,
     handoffContextChars,
     handoffContextTruncated,
+    status: "running",
+    activity: "starting",
+    elapsedMs: 0,
+    timeoutMs: clampTimeoutMs(timeoutMs),
   };
+  const startedAt = Date.now();
+  let lastProgressEmitAt = 0;
 
   const emitUpdate = () => {
-    if (onUpdate) {
-      onUpdate({
-        content: [{ type: "text", text: getFinalOutput(currentResult.messages) || "(running...)" }],
-        details: makeDetails([currentResult]),
-      });
-    }
+    if (!onUpdate) return;
+    lastProgressEmitAt = Date.now();
+    currentResult.elapsedMs = Date.now() - startedAt;
+    const progress = `Running for ${formatElapsed(currentResult.elapsedMs)} — ${currentResult.activity ?? "working"}`;
+    const latestOutput = getFinalOutput(currentResult.messages);
+    onUpdate({
+      content: [{ type: "text", text: latestOutput ? `${progress}\n\nLatest assistant output:\n${latestOutput}` : progress }],
+      details: makeDetails([currentResult]),
+    });
   };
+
+  if (signal?.aborted) {
+    currentResult.exitCode = 1;
+    currentResult.status = "aborted";
+    currentResult.stopReason = "aborted";
+    currentResult.errorMessage = "Subagent was cancelled before it started.";
+    currentResult.activity = "cancelled before start";
+    currentResult.elapsedMs = Date.now() - startedAt;
+    return currentResult;
+  }
 
   try {
     if (agent.systemPrompt.trim()) {
@@ -153,19 +203,79 @@ export async function runSingleAgent(
     }
 
     args.push(`Task: ${task}`);
-    let wasAborted = false;
 
-    const exitCode = await new Promise<number>((resolve) => {
+    const outcome = await new Promise<{ exitCode: number; reason?: "aborted" | "timed_out" }>((resolve) => {
       const invocation = getPiInvocation(args);
       const parentDepth = parseInt(process.env.PI_SUBAGENT_DEPTH ?? "", 10);
       const childDepth = (Number.isFinite(parentDepth) ? parentDepth : 0) + 1;
       const proc = spawn(invocation.command, invocation.args, {
         cwd: cwd ?? defaultCwd,
         shell: false,
+        detached: process.platform !== "win32",
         stdio: ["ignore", "pipe", "pipe"],
         env: { ...process.env, PI_SUBAGENT_DEPTH: String(childDepth) },
       });
       let buffer = "";
+      let settled = false;
+      let terminationReason: "aborted" | "timed_out" | undefined;
+      let lastActivityAt = Date.now();
+      let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+
+      const updateActivity = (activity: string, forceUpdate = true) => {
+        currentResult.activity = activity;
+        lastActivityAt = Date.now();
+        if (forceUpdate || Date.now() - lastProgressEmitAt >= 500) emitUpdate();
+      };
+
+      const cleanup = () => {
+        clearTimeout(timeoutTimer);
+        if (forceKillTimer) clearTimeout(forceKillTimer);
+        if (heartbeat) clearInterval(heartbeat);
+        signal?.removeEventListener("abort", abortChild);
+      };
+
+      const finish = (exitCode: number) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve({ exitCode, reason: terminationReason });
+      };
+
+      const terminate = (reason: "aborted" | "timed_out") => {
+        if (settled || terminationReason) return;
+        terminationReason = reason;
+        updateActivity(reason === "timed_out" ? "timed out; stopping process" : "cancelled; stopping process");
+        try {
+          signalProcessTree(proc, "SIGTERM");
+        } catch (error) {
+          currentResult.stderr += `Failed to send SIGTERM: ${error instanceof Error ? error.message : String(error)}\n`;
+        }
+        forceKillTimer = setTimeout(() => {
+          if (settled) return;
+          try {
+            signalProcessTree(proc, "SIGKILL");
+          } catch (error) {
+            currentResult.stderr += `Failed to send SIGKILL: ${error instanceof Error ? error.message : String(error)}\n`;
+          }
+        }, TERMINATION_GRACE_MS);
+      };
+
+      const abortChild = () => terminate("aborted");
+      const timeoutTimer = setTimeout(() => terminate("timed_out"), currentResult.timeoutMs);
+      const heartbeat = onUpdate
+        ? setInterval(() => {
+            if (settled) return;
+            const quietFor = Date.now() - lastActivityAt;
+            const quietNote = quietFor >= HEARTBEAT_MS ? `; no child event for ${formatElapsed(quietFor)}` : "";
+            currentResult.elapsedMs = Date.now() - startedAt;
+            const progress = `Running for ${formatElapsed(currentResult.elapsedMs)} — ${currentResult.activity ?? "working"}${quietNote}`;
+            const latestOutput = getFinalOutput(currentResult.messages);
+            onUpdate({
+              content: [{ type: "text", text: latestOutput ? `${progress}\n\nLatest assistant output:\n${latestOutput}` : progress }],
+              details: makeDetails([currentResult]),
+            });
+          }, HEARTBEAT_MS)
+        : undefined;
 
       const processLine = (line: string) => {
         if (!line.trim()) return;
@@ -175,6 +285,13 @@ export async function runSingleAgent(
         } catch {
           return;
         }
+
+        if (event.type === "agent_start" || event.type === "turn_start") updateActivity("thinking");
+        if (event.type === "message_update") updateActivity("streaming response", false);
+        if (event.type === "tool_execution_start") updateActivity(`running tool: ${String(event.toolName ?? "unknown")}`);
+        if (event.type === "tool_execution_update") updateActivity(`receiving update from tool: ${String(event.toolName ?? "unknown")}`, false);
+        if (event.type === "tool_execution_end") updateActivity(`${event.isError ? "tool failed" : "tool finished"}: ${String(event.toolName ?? "unknown")}`);
+        if (event.type === "agent_end") updateActivity("finalizing result");
 
         if (event.type === "message_end" && event.message) {
           const msg = event.message as Message;
@@ -195,12 +312,13 @@ export async function runSingleAgent(
             if (msg.stopReason) currentResult.stopReason = msg.stopReason;
             if (msg.errorMessage) currentResult.errorMessage = msg.errorMessage;
           }
-          emitUpdate();
+          updateActivity("processing completed message");
         }
 
+        // Older pi JSON streams may use this event instead of message_end for tool results.
         if (event.type === "tool_result_end" && event.message) {
           currentResult.messages.push(event.message as Message);
-          emitUpdate();
+          updateActivity("processing tool result");
         }
       };
 
@@ -213,32 +331,37 @@ export async function runSingleAgent(
 
       proc.stderr.on("data", (data) => {
         currentResult.stderr += data.toString();
+        updateActivity("receiving process diagnostics");
       });
 
       proc.on("close", (code) => {
         if (buffer.trim()) processLine(buffer);
-        resolve(code ?? 0);
+        finish(code ?? 0);
       });
 
-      proc.on("error", () => {
-        resolve(1);
+      proc.on("error", (error) => {
+        currentResult.stderr += `${error.message}\n`;
+        finish(1);
       });
 
-      if (signal) {
-        const killProc = () => {
-          wasAborted = true;
-          proc.kill("SIGTERM");
-          setTimeout(() => {
-            if (!proc.killed) proc.kill("SIGKILL");
-          }, 5000);
-        };
-        if (signal.aborted) killProc();
-        else signal.addEventListener("abort", killProc, { once: true });
-      }
+      if (signal?.aborted) abortChild();
+      else signal?.addEventListener("abort", abortChild, { once: true });
+      updateActivity("starting agent process");
     });
 
-    currentResult.exitCode = exitCode;
-    if (wasAborted) throw new Error("Subagent was aborted");
+    currentResult.elapsedMs = Date.now() - startedAt;
+    currentResult.exitCode = outcome.reason === "timed_out" ? 124 : outcome.exitCode;
+    if (outcome.reason === "timed_out") {
+      currentResult.status = "timed_out";
+      currentResult.stopReason = "timeout";
+      currentResult.errorMessage = `Subagent exceeded its ${formatElapsed(currentResult.timeoutMs ?? DEFAULT_SUBAGENT_TIMEOUT_MS)} timeout.`;
+    } else if (outcome.reason === "aborted") {
+      currentResult.status = "aborted";
+      currentResult.stopReason = "aborted";
+      currentResult.errorMessage = "Subagent was cancelled.";
+    } else {
+      currentResult.status = outcome.exitCode === 0 ? "completed" : "failed";
+    }
     return currentResult;
   } finally {
     if (tmpPromptPath)

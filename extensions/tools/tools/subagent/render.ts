@@ -7,6 +7,19 @@ import type { DisplayItem, SubagentDetails, SingleResult } from "./types.js";
 
 const COLLAPSED_ITEM_COUNT = 10;
 
+function formatElapsed(ms: number | undefined): string {
+  if (ms == null) return "";
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
+function runningStatus(result: SingleResult): string {
+  const elapsed = formatElapsed(result.elapsedMs);
+  const prefix = elapsed ? `running ${elapsed}` : "running";
+  return result.activity ? `${prefix} · ${result.activity}` : prefix;
+}
+
 function renderDisplayItems(
   items: DisplayItem[],
   theme: { fg: (c: string, t: string) => string },
@@ -121,6 +134,7 @@ export function renderResult(
       if (!isRunning && isError && r.stopReason) header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
       container.addChild(new Text(header, 0, 0));
       if (spawnLine) container.addChild(new Text(spawnLine, 0, 0));
+      if (isRunning) container.addChild(new Text(theme.fg("muted", runningStatus(r)), 0, 0));
       if (!isRunning && isError && r.errorMessage)
         container.addChild(new Text(theme.fg("error", `Error: ${r.errorMessage}`), 0, 0));
       container.addChild(new Spacer(1));
@@ -158,7 +172,7 @@ export function renderResult(
     let text = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}`;
     if (!isRunning && isError && r.stopReason) text += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
     if (!isRunning && isError && r.errorMessage) text += `\n${theme.fg("error", `Error: ${r.errorMessage}`)}`;
-    else if (displayItems.length === 0) text += `\n${theme.fg("muted", isRunning ? "(running...)" : "(no output)")}`;
+    else if (displayItems.length === 0) text += `\n${theme.fg("muted", isRunning ? runningStatus(r) : "(no output)")}`;
     else {
       text += `\n${renderDisplayItems(displayItems, theme, COLLAPSED_ITEM_COUNT)}`;
       if (displayItems.length > COLLAPSED_ITEM_COUNT) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
@@ -256,7 +270,7 @@ export function renderResult(
       const modelShort = r.model?.includes("/") ? r.model.split("/")[1] : r.model;
       const modelStr = modelShort ? theme.fg("muted", ` [${modelShort}]`) : "";
       text += `\n\n${theme.fg("muted", `─── Step ${r.step}: `)}${theme.fg("accent", r.agent)}${modelStr} ${rIcon}`;
-      if (displayItems.length === 0) text += `\n${theme.fg("muted", "(no output)")}`;
+      if (displayItems.length === 0) text += `\n${theme.fg("muted", isStepRunning ? runningStatus(r) : "(no output)")}`;
       else text += `\n${renderDisplayItems(displayItems, theme, 5)}`;
     }
     const usageStr = formatUsageStats(aggregateUsage(details.results));
@@ -351,7 +365,7 @@ export function renderResult(
       const modelStr = modelShort ? theme.fg("muted", ` [${modelShort}]`) : "";
       text += `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)}${modelStr} ${rIcon}`;
       if (displayItems.length === 0)
-        text += `\n${theme.fg("muted", isRunning ? "(running...)" : "(no output)")}`;
+        text += `\n${theme.fg("muted", isRunning ? runningStatus(r) : "(no output)")}`;
       else text += `\n${renderDisplayItems(displayItems, theme, 5)}`;
     }
     if (!isRunning) {

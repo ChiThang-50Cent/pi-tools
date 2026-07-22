@@ -331,6 +331,14 @@ Control how subagent output is returned to the parent context:
 }
 ```
 
+### Timeout and live progress
+
+Each subagent emits an initial status, tool activity, and a heartbeat every five seconds while it runs. The default wall-clock timeout is 15 minutes; use `timeoutMs` (milliseconds) at the top level or per task/chain step to override it. On timeout or cancellation, Pi terminates the child process group and returns a normal failed result rather than leaving the caller waiting indefinitely.
+
+```jsonc
+{ "agent": "general", "task": "Large migration", "timeoutMs": 1800000 }
+```
+
 ### Chain handoff compaction
 
 Chain steps pass output via `{previous}`. By default, `chainHandoffMode: "compact"` truncates large outputs to reduce token blow-up:
