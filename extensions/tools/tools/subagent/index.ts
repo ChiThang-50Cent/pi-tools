@@ -142,7 +142,7 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      if ((agentScope === "project" || agentScope === "both") && confirmProjectAgents && ctx.hasUI) {
+      if (agentScope === "project" || agentScope === "both") {
         const requestedAgentNames = new Set<string>();
         if (params.chain) for (const step of params.chain) requestedAgentNames.add(step.agent);
         if (params.tasks) for (const t of params.tasks) requestedAgentNames.add(t.agent);
@@ -152,7 +152,18 @@ export default function (pi: ExtensionAPI) {
           .map((name) => agents.find((a) => a.name === name))
           .filter((a): a is AgentConfig => a?.source === "project");
 
-        if (projectAgentsRequested.length > 0) {
+        if (projectAgentsRequested.length > 0 && confirmProjectAgents) {
+          const mode = hasChain ? "chain" : hasTasks ? "parallel" : "single";
+          if (!ctx.hasUI)
+            return {
+              content: [{
+                type: "text",
+                text: "Cannot run project-local agents without interactive confirmation. Set confirmProjectAgents:false to explicitly allow them.",
+              }],
+              details: makeDetails(mode)([]),
+              isError: true,
+            };
+
           const names = projectAgentsRequested.map((a) => a.name).join(", ");
           const dir = discovery.projectAgentsDir ?? "(unknown)";
           const ok = await ctx.ui.confirm(
@@ -162,7 +173,7 @@ export default function (pi: ExtensionAPI) {
           if (!ok)
             return {
               content: [{ type: "text", text: "Canceled: project-local agents not approved." }],
-              details: makeDetails(hasChain ? "chain" : hasTasks ? "parallel" : "single")([]),
+              details: makeDetails(mode)([]),
             };
         }
       }

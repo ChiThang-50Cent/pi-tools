@@ -100,7 +100,7 @@ Use `lean` for focused exploration; use `full` when the task depends on extensio
 
 ## Lifecycle and cancellation
 
-The runner emits initial status, tool activity, and a five-second heartbeat while a child runs. Default timeout is 15 minutes. On timeout or parent cancellation it terminates the child process group, returning a controlled failed result instead of leaving the caller waiting.
+The runner emits initial status, tool activity, and a five-second heartbeat while a child runs. Default timeout is 15 minutes. On timeout or parent cancellation it terminates the child process group, force-settles after the kill grace period, and returns a controlled failed result instead of leaving the caller waiting. Stdout buffering, stored transcript messages, and stderr are each capped at 1 MiB; truncation is recorded in diagnostics.
 
 ## Custom agents
 
@@ -118,6 +118,6 @@ task_categories: review, audit
 You are a senior code reviewer...
 ```
 
-Later discovery sources override earlier ones: built-in, then user, then project agents.
+Later discovery sources override earlier ones: built-in, then user, then project agents. Project-local agents require confirmation by default. In a headless session, requests using a project agent fail closed unless `confirmProjectAgents: false` explicitly opts in.
 
 For measured overhead and CLI usage, see the [subagent benchmark](benchmark.md).

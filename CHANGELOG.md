@@ -27,7 +27,8 @@
 
 ### Fixed
 - Parse complete successful broker responses before limiting diagnostic error bodies, preventing large search responses from incorrectly rendering as zero results.
-- Subagent lifecycle now provides progress heartbeats, bounded wall-clock timeouts, and process-group cancellation.
+- Subagent lifecycle now provides progress heartbeats, bounded wall-clock timeouts, process-group cancellation, force-settling after cancellation, and capped stdout/transcript/stderr capture.
+- Headless requests for project-local agents now fail closed unless `confirmProjectAgents: false` explicitly opts in.
 
 ### Removed
 - Removed the `analyze_image` tool and its image/vision implementation.

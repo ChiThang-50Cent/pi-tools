@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
 import { withFileMutationQueue, type ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -55,6 +56,12 @@ export const DEFAULT_SUBAGENT_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_SUBAGENT_TIMEOUT_MS = 6 * 60 * 60 * 1000;
 const HEARTBEAT_MS = 5_000;
 const TERMINATION_GRACE_MS = 5_000;
+export const MAX_SUBAGENT_CAPTURE_BYTES = 1 * 1024 * 1024;
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  if (Buffer.byteLength(value, "utf8") <= maxBytes) return value;
+  return new StringDecoder("utf8").write(Buffer.from(value, "utf8").subarray(0, maxBytes));
+}
 
 function clampTimeoutMs(value: number | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_SUBAGENT_TIMEOUT_MS;
@@ -216,10 +223,21 @@ export async function runSingleAgent(
         env: { ...process.env, PI_SUBAGENT_DEPTH: String(childDepth) },
       });
       let buffer = "";
+      let bufferBytes = 0;
+      let discardCurrentLine = false;
+      let stdoutTruncated = false;
+      let transcriptBytes = 0;
+      let transcriptTruncated = false;
+      let stderrTruncated = false;
+      let stderrCapture = "";
+      const truncationNotices: string[] = [];
+      const stderrTruncationMarker = `[subagent stderr truncated after ${MAX_SUBAGENT_CAPTURE_BYTES} bytes]\n`;
       let settled = false;
       let terminationReason: "aborted" | "timed_out" | undefined;
       let lastActivityAt = Date.now();
       let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+      let timeoutTimer: ReturnType<typeof setTimeout>;
+      let heartbeat: ReturnType<typeof setInterval> | undefined;
 
       const updateActivity = (activity: string, forceUpdate = true) => {
         currentResult.activity = activity;
@@ -227,55 +245,53 @@ export async function runSingleAgent(
         if (forceUpdate || Date.now() - lastProgressEmitAt >= 500) emitUpdate();
       };
 
-      const cleanup = () => {
-        clearTimeout(timeoutTimer);
-        if (forceKillTimer) clearTimeout(forceKillTimer);
-        if (heartbeat) clearInterval(heartbeat);
-        signal?.removeEventListener("abort", abortChild);
-      };
-
-      const finish = (exitCode: number) => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        resolve({ exitCode, reason: terminationReason });
-      };
-
-      const terminate = (reason: "aborted" | "timed_out") => {
-        if (settled || terminationReason) return;
-        terminationReason = reason;
-        updateActivity(reason === "timed_out" ? "timed out; stopping process" : "cancelled; stopping process");
-        try {
-          signalProcessTree(proc, "SIGTERM");
-        } catch (error) {
-          currentResult.stderr += `Failed to send SIGTERM: ${error instanceof Error ? error.message : String(error)}\n`;
+      const refreshStderr = () => {
+        const notices = truncationNotices.join("");
+        let captureLimit = MAX_SUBAGENT_CAPTURE_BYTES - Buffer.byteLength(notices, "utf8");
+        if (!stderrTruncated && Buffer.byteLength(stderrCapture, "utf8") > captureLimit) {
+          stderrTruncated = true;
         }
-        forceKillTimer = setTimeout(() => {
-          if (settled) return;
-          try {
-            signalProcessTree(proc, "SIGKILL");
-          } catch (error) {
-            currentResult.stderr += `Failed to send SIGKILL: ${error instanceof Error ? error.message : String(error)}\n`;
-          }
-        }, TERMINATION_GRACE_MS);
+        if (stderrTruncated) captureLimit -= Buffer.byteLength(stderrTruncationMarker, "utf8");
+        currentResult.stderr = `${truncateUtf8(stderrCapture, Math.max(0, captureLimit))}${stderrTruncated ? stderrTruncationMarker : ""}${notices}`;
       };
 
-      const abortChild = () => terminate("aborted");
-      const timeoutTimer = setTimeout(() => terminate("timed_out"), currentResult.timeoutMs);
-      const heartbeat = onUpdate
-        ? setInterval(() => {
-            if (settled) return;
-            const quietFor = Date.now() - lastActivityAt;
-            const quietNote = quietFor >= HEARTBEAT_MS ? `; no child event for ${formatElapsed(quietFor)}` : "";
-            currentResult.elapsedMs = Date.now() - startedAt;
-            const progress = `Running for ${formatElapsed(currentResult.elapsedMs)} — ${currentResult.activity ?? "working"}${quietNote}`;
-            const latestOutput = getFinalOutput(currentResult.messages);
-            onUpdate({
-              content: [{ type: "text", text: latestOutput ? `${progress}\n\nLatest assistant output:\n${latestOutput}` : progress }],
-              details: makeDetails([currentResult]),
-            });
-          }, HEARTBEAT_MS)
-        : undefined;
+      const appendStderr = (text: string) => {
+        if (!text || stderrTruncated) return;
+        const noticesBytes = Buffer.byteLength(truncationNotices.join(""), "utf8");
+        if (Buffer.byteLength(stderrCapture, "utf8") + Buffer.byteLength(text, "utf8") <= MAX_SUBAGENT_CAPTURE_BYTES - noticesBytes) {
+          stderrCapture += text;
+        } else {
+          stderrCapture = truncateUtf8(
+            `${stderrCapture}${text}`,
+            MAX_SUBAGENT_CAPTURE_BYTES - noticesBytes - Buffer.byteLength(stderrTruncationMarker, "utf8"),
+          );
+          stderrTruncated = true;
+        }
+        refreshStderr();
+      };
+
+      const appendTruncationNotice = (kind: "stdout" | "transcript") => {
+        const notice = `[subagent ${kind} truncated after ${MAX_SUBAGENT_CAPTURE_BYTES} bytes]\n`;
+        if (!truncationNotices.includes(notice)) truncationNotices.push(notice);
+        refreshStderr();
+      };
+
+      const recordMessage = (message: Message) => {
+        if (transcriptTruncated) return;
+        let messageBytes = MAX_SUBAGENT_CAPTURE_BYTES + 1;
+        try {
+          messageBytes = Buffer.byteLength(JSON.stringify(message) ?? "", "utf8");
+        } catch {
+          // Messages come from JSON, so this is only a defensive fallback.
+        }
+        if (transcriptBytes + messageBytes > MAX_SUBAGENT_CAPTURE_BYTES) {
+          transcriptTruncated = true;
+          appendTruncationNotice("transcript");
+          return;
+        }
+        currentResult.messages.push(message);
+        transcriptBytes += messageBytes;
+      };
 
       const processLine = (line: string) => {
         if (!line.trim()) return;
@@ -295,7 +311,7 @@ export async function runSingleAgent(
 
         if (event.type === "message_end" && event.message) {
           const msg = event.message as Message;
-          currentResult.messages.push(msg);
+          recordMessage(msg);
 
           if (msg.role === "assistant") {
             currentResult.usage.turns++;
@@ -317,32 +333,131 @@ export async function runSingleAgent(
 
         // Older pi JSON streams may use this event instead of message_end for tool results.
         if (event.type === "tool_result_end" && event.message) {
-          currentResult.messages.push(event.message as Message);
+          recordMessage(event.message as Message);
           updateActivity("processing tool result");
         }
       };
 
-      proc.stdout.on("data", (data) => {
-        buffer += data.toString();
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) processLine(line);
-      });
+      const processStdoutChunk = (data: Buffer | string) => {
+        const chunk = data.toString();
+        let offset = 0;
+        while (offset <= chunk.length) {
+          const newline = chunk.indexOf("\n", offset);
+          const linePart = chunk.slice(offset, newline === -1 ? chunk.length : newline);
 
-      proc.stderr.on("data", (data) => {
-        currentResult.stderr += data.toString();
+          if (discardCurrentLine) {
+            if (newline === -1) return;
+            discardCurrentLine = false;
+            offset = newline + 1;
+            continue;
+          }
+
+          const linePartBytes = Buffer.byteLength(linePart, "utf8");
+          if (bufferBytes + linePartBytes > MAX_SUBAGENT_CAPTURE_BYTES) {
+            if (!stdoutTruncated) {
+              stdoutTruncated = true;
+              appendTruncationNotice("stdout");
+            }
+            buffer = "";
+            bufferBytes = 0;
+            if (newline === -1) discardCurrentLine = true;
+            else offset = newline + 1;
+            continue;
+          }
+
+          buffer += linePart;
+          bufferBytes += linePartBytes;
+          if (newline === -1) return;
+
+          processLine(buffer);
+          buffer = "";
+          bufferBytes = 0;
+          offset = newline + 1;
+        }
+      };
+
+      const onStdoutData = (data: Buffer | string) => processStdoutChunk(data);
+      const onStderrData = (data: Buffer | string) => {
+        appendStderr(data.toString());
         updateActivity("receiving process diagnostics");
-      });
+      };
 
-      proc.on("close", (code) => {
-        if (buffer.trim()) processLine(buffer);
+      const cleanup = () => {
+        clearTimeout(timeoutTimer);
+        if (forceKillTimer) clearTimeout(forceKillTimer);
+        if (heartbeat) clearInterval(heartbeat);
+        signal?.removeEventListener("abort", abortChild);
+        proc.stdout?.removeListener("data", onStdoutData);
+        proc.stderr?.removeListener("data", onStderrData);
+        proc.removeListener("close", onClose);
+        proc.removeListener("exit", onExit);
+        proc.removeListener("error", onError);
+        proc.stdout?.destroy();
+        proc.stderr?.destroy();
+      };
+
+      const finish = (exitCode: number) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve({ exitCode, reason: terminationReason });
+      };
+
+      const terminate = (reason: "aborted" | "timed_out") => {
+        if (settled || terminationReason) return;
+        terminationReason = reason;
+        updateActivity(reason === "timed_out" ? "timed out; stopping process" : "cancelled; stopping process");
+        forceKillTimer = setTimeout(() => {
+          if (settled) return;
+          try {
+            signalProcessTree(proc, "SIGKILL");
+          } catch (error) {
+            appendStderr(`Failed to send SIGKILL: ${error instanceof Error ? error.message : String(error)}\n`);
+          }
+          // Do not wait for `close`: descendants can keep inherited pipes open.
+          finish(137);
+        }, TERMINATION_GRACE_MS);
+        try {
+          signalProcessTree(proc, "SIGTERM");
+        } catch (error) {
+          appendStderr(`Failed to send SIGTERM: ${error instanceof Error ? error.message : String(error)}\n`);
+        }
+      };
+
+      const abortChild = () => terminate("aborted");
+      timeoutTimer = setTimeout(() => terminate("timed_out"), currentResult.timeoutMs);
+      heartbeat = onUpdate
+        ? setInterval(() => {
+            if (settled) return;
+            const quietFor = Date.now() - lastActivityAt;
+            const quietNote = quietFor >= HEARTBEAT_MS ? `; no child event for ${formatElapsed(quietFor)}` : "";
+            currentResult.elapsedMs = Date.now() - startedAt;
+            const progress = `Running for ${formatElapsed(currentResult.elapsedMs)} — ${currentResult.activity ?? "working"}${quietNote}`;
+            const latestOutput = getFinalOutput(currentResult.messages);
+            onUpdate({
+              content: [{ type: "text", text: latestOutput ? `${progress}\n\nLatest assistant output:\n${latestOutput}` : progress }],
+              details: makeDetails([currentResult]),
+            });
+          }, HEARTBEAT_MS)
+        : undefined;
+
+      const onClose = (code: number | null) => {
+        if (!discardCurrentLine && buffer.trim()) processLine(buffer);
         finish(code ?? 0);
-      });
-
-      proc.on("error", (error) => {
-        currentResult.stderr += `${error.message}\n`;
+      };
+      const onExit = (code: number | null) => {
+        if (terminationReason) finish(code ?? 0);
+      };
+      const onError = (error: Error) => {
+        appendStderr(`${error.message}\n`);
         finish(1);
-      });
+      };
+
+      proc.stdout.on("data", onStdoutData);
+      proc.stderr.on("data", onStderrData);
+      proc.on("close", onClose);
+      proc.on("exit", onExit);
+      proc.on("error", onError);
 
       if (signal?.aborted) abortChild();
       else signal?.addEventListener("abort", abortChild, { once: true });
