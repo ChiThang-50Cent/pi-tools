@@ -5,6 +5,7 @@
 ### Added
 - Loopback-only local search broker with cross-process throttling, caching, single-flight deduplication, retries, cooldowns, and health metrics.
 - Broker systemd user-service template and configuration options.
+- Local-only SearXNG setup guide with a minimal `keep_only` engine profile.
 - Subagent benchmark harness at `scripts/benchmark-subagent.mjs`.
 - Default benchmark cases at `benchmarks/subagent-cases.json`.
 - Subagent output compaction helper in `extensions/tools/tools/subagent/output.ts`.

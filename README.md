@@ -122,45 +122,63 @@ curl -fsSL https://pi.dev/install.sh | sh
 npm install -g @earendil-works/pi-coding-agent
 ```
 
-### 2. SearXNG
+### 2. SearXNG (local-only)
 
-SearXNG powers `web_search` and `code_search`.
+`web_search` and `code_search` need a SearXNG JSON API. This setup deliberately does **not** use Redis/Valkey and publishes SearXNG only on host loopback. Do not use `-p 8080:8080`, which exposes it on every host interface.
+
+#### Create a minimal configuration
 
 ```bash
-# Docker (recommended)
-docker run -d --name searxng -p 8080:8080 searxng/searxng:latest
-
-# Verify
-curl "http://127.0.0.1:8080/search?q=test&format=json"
+export SEARX_DIR="$HOME/.local/share/pi-tools/searxng"
+mkdir -p "$SEARX_DIR/config" "$SEARX_DIR/data"
+openssl rand -hex 32  # copy this value into secret_key below
 ```
 
-<details>
-<summary>Docker Compose</summary>
+Create `$SEARX_DIR/config/settings.yml`:
 
 ```yaml
-services:
-  searxng:
-    image: searxng/searxng:latest
-    ports:
-      - "8080:8080"
-    volumes:
-      - searxng-config:/etc/searxng
-    restart: unless-stopped
+# Keep only sources that you have tested from this host/network.
+# Bing + Yandex are the current low-fan-out profile used by pi-tools.
+use_default_settings:
+  engines:
+    keep_only:
+      - bing
+      - yandex
 
-volumes:
-  searxng-config:
+server:
+  secret_key: "replace-with-the-random-value"
+
+search:
+  formats:
+    - html
+    - json
+
+# These engines are disabled in the upstream defaults, so enable them explicitly.
+engines:
+  - name: bing
+    disabled: false
+  - name: yandex
+    disabled: false
 ```
+
+`keep_only` is optional but recommended: it prevents one query from fanning out to dozens of public providers. Search-engine blocking varies by IP and region, so audit candidate engines sequentially before changing this list.
+
+#### Start the container
 
 ```bash
-docker compose up -d
+docker run -d --name pi-tools-searxng --restart unless-stopped \
+  -p 127.0.0.1:8080:8080 \
+  -v "$SEARX_DIR/config:/etc/searxng" \
+  -v "$SEARX_DIR/data:/var/cache/searxng" \
+  searxng/searxng:latest
+
+curl --get 'http://127.0.0.1:8080/search' \
+  --data-urlencode 'q=SearXNG health check' \
+  --data-urlencode 'format=json' \
+  --data-urlencode 'categories=general'
 ```
-</details>
 
-<details>
-<summary>Bare metal</summary>
-
-See [SearXNG docs](https://docs.searxng.org/admin/installation-searxng.html). Requires Python 3.11+.
-</details>
+For Docker Compose, use the same two volumes and bind the port as `127.0.0.1:8080:8080`. See the [official container guide](https://docs.searxng.org/admin/installation-docker.html) and [settings reference](https://docs.searxng.org/admin/settings/settings.html) for upgrades and engine-specific options.
 
 > **Tip:** If SearXNG runs on a different host/port, override in `~/.pi/tools.json` (see [Configuration](#configuration)).
 
