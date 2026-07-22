@@ -1,5 +1,5 @@
 // ─── runner.ts ────── Subagent process spawning & streaming ──────────────
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -81,20 +81,46 @@ function signalProcessTree(proc: ChildProcess, signal: NodeJS.Signals): void {
     if (process.platform !== "win32") {
       process.kill(-proc.pid, signal);
     } else {
-      proc.kill(signal);
+      const taskkillArgs = ["/PID", String(proc.pid), "/T"];
+      if (signal === "SIGKILL") taskkillArgs.push("/F");
+      execFile("taskkill", taskkillArgs, { shell: false, windowsHide: true }, () => {});
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
   }
 }
 
-async function writePromptToTempFile(agentName: string, prompt: string): Promise<{ dir: string; filePath: string }> {
+type PromptTempFile = { dir: string; filePath: string };
+
+function cleanupPromptTempFile(tmp: PromptTempFile): void {
+  try {
+    fs.unlinkSync(tmp.filePath);
+  } catch {
+    /* ignore */
+  }
+  try {
+    fs.rmSync(tmp.dir, { recursive: true, force: true });
+  } catch {
+    /* ignore */
+  }
+}
+
+async function writePromptToTempFile(agentName: string, prompt: string): Promise<PromptTempFile> {
   const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "pi-subagent-"));
   const safeName = agentName.replace(/[^\w.-]+/g, "_");
   const filePath = path.join(tmpDir, `prompt-${safeName}.md`);
-  await withFileMutationQueue(filePath, async () => {
-    await fs.promises.writeFile(filePath, prompt, { encoding: "utf-8", mode: 0o600 });
-  });
+  try {
+    await withFileMutationQueue(filePath, async () => {
+      await fs.promises.writeFile(filePath, prompt, { encoding: "utf-8", mode: 0o600 });
+    });
+  } catch (error) {
+    try {
+      await fs.promises.rm(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* preserve the prompt setup error */
+    }
+    throw error;
+  }
   return { dir: tmpDir, filePath };
 }
 
@@ -140,7 +166,9 @@ export async function runSingleAgent(
 
   // Model resolution: task override > tool-level override > tools.json config > agent frontmatter > inherit
   const agentCfg = getAgentModelConfig(agentName, agent.model, agent.thinking);
-  const rawModel = modelOverride ?? agentCfg.model;
+  const rawModel = modelOverride
+    ?? agentCfg.model
+    ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined);
   const resolvedThinking = thinkingOverride ?? agentCfg.thinking;
   // Resolve model to provider/modelId format
   const resolvedModel = rawModel ? resolveModelString(rawModel, ctx) : undefined;
@@ -176,7 +204,9 @@ export async function runSingleAgent(
     elapsedMs: 0,
     timeoutMs: clampTimeoutMs(timeoutMs),
   };
+  const effectiveTimeoutMs = currentResult.timeoutMs ?? DEFAULT_SUBAGENT_TIMEOUT_MS;
   const startedAt = Date.now();
+  const deadlineAt = startedAt + effectiveTimeoutMs;
   let lastProgressEmitAt = 0;
 
   const emitUpdate = () => {
@@ -191,27 +221,87 @@ export async function runSingleAgent(
     });
   };
 
-  if (signal?.aborted) {
-    currentResult.exitCode = 1;
-    currentResult.status = "aborted";
-    currentResult.stopReason = "aborted";
-    currentResult.errorMessage = "Subagent was cancelled before it started.";
-    currentResult.activity = "cancelled before start";
+  const finishBeforeStart = (reason: "aborted" | "timed_out"): SingleResult => {
+    currentResult.exitCode = reason === "timed_out" ? 124 : 1;
+    currentResult.status = reason;
+    currentResult.stopReason = reason === "timed_out" ? "timeout" : "aborted";
+    currentResult.errorMessage = reason === "timed_out"
+      ? `Subagent exceeded its ${formatElapsed(effectiveTimeoutMs)} timeout.`
+      : "Subagent was cancelled before it started.";
+    currentResult.activity = reason === "timed_out" ? "timed out before start" : "cancelled before start";
     currentResult.elapsedMs = Date.now() - startedAt;
     return currentResult;
-  }
+  };
+
+  if (signal?.aborted) return finishBeforeStart("aborted");
 
   try {
     if (agent.systemPrompt.trim()) {
-      const tmp = await writePromptToTempFile(agent.name, agent.systemPrompt);
-      tmpPromptDir = tmp.dir;
-      tmpPromptPath = tmp.filePath;
+      let setupCancelled = false;
+      const promptSetup = writePromptToTempFile(agent.name, agent.systemPrompt);
+      void promptSetup.then(
+        (tmp) => {
+          if (setupCancelled) cleanupPromptTempFile(tmp);
+        },
+        () => {
+          // writePromptToTempFile cleans any directory it created before failing.
+        },
+      );
+
+      let setupTimer: ReturnType<typeof setTimeout> | undefined;
+      let setupAbortHandler: (() => void) | undefined;
+      let setupWaitSettled = false;
+      const clearSetupWait = () => {
+        if (setupTimer) clearTimeout(setupTimer);
+        if (setupAbortHandler) signal?.removeEventListener("abort", setupAbortHandler);
+      };
+      const setupDeadline = new Promise<{ kind: "aborted" | "timed_out" }>((resolve) => {
+        const finishSetupWait = (kind: "aborted" | "timed_out") => {
+          if (setupWaitSettled) return;
+          setupWaitSettled = true;
+          setupCancelled = true;
+          clearSetupWait();
+          resolve({ kind });
+        };
+
+        setupAbortHandler = () => finishSetupWait("aborted");
+        const remainingMs = deadlineAt - Date.now();
+        if (remainingMs <= 0) {
+          finishSetupWait("timed_out");
+          return;
+        }
+        setupTimer = setTimeout(() => finishSetupWait("timed_out"), remainingMs);
+        if (signal?.aborted) finishSetupWait("aborted");
+        else signal?.addEventListener("abort", setupAbortHandler, { once: true });
+      });
+
+      let setupOutcome: { kind: "ready"; tmp: PromptTempFile } | { kind: "aborted" | "timed_out" };
+      try {
+        setupOutcome = await Promise.race([
+          promptSetup.then((tmp) => ({ kind: "ready" as const, tmp })),
+          setupDeadline,
+        ]);
+      } finally {
+        clearSetupWait();
+      }
+
+      if (setupOutcome.kind !== "ready") return finishBeforeStart(setupOutcome.kind);
+      tmpPromptDir = setupOutcome.tmp.dir;
+      tmpPromptPath = setupOutcome.tmp.filePath;
       args.push("--append-system-prompt", tmpPromptPath);
     }
 
+    if (signal?.aborted) return finishBeforeStart("aborted");
+    const remainingTimeoutMs = deadlineAt - Date.now();
+    if (remainingTimeoutMs <= 0) return finishBeforeStart("timed_out");
+
     args.push(`Task: ${task}`);
 
-    const outcome = await new Promise<{ exitCode: number; reason?: "aborted" | "timed_out" }>((resolve) => {
+    const outcome = await new Promise<{
+      exitCode: number;
+      reason?: "aborted" | "timed_out";
+      signal?: NodeJS.Signals;
+    }>((resolve) => {
       const invocation = getPiInvocation(args);
       const parentDepth = parseInt(process.env.PI_SUBAGENT_DEPTH ?? "", 10);
       const childDepth = (Number.isFinite(parentDepth) ? parentDepth : 0) + 1;
@@ -222,6 +312,9 @@ export async function runSingleAgent(
         stdio: ["ignore", "pipe", "pipe"],
         env: { ...process.env, PI_SUBAGENT_DEPTH: String(childDepth) },
       });
+      const stdoutDecoder = new StringDecoder("utf8");
+      const stderrDecoder = new StringDecoder("utf8");
+      let decodersFlushed = false;
       let buffer = "";
       let bufferBytes = 0;
       let discardCurrentLine = false;
@@ -338,8 +431,7 @@ export async function runSingleAgent(
         }
       };
 
-      const processStdoutChunk = (data: Buffer | string) => {
-        const chunk = data.toString();
+      const processStdoutChunk = (chunk: string) => {
         let offset = 0;
         while (offset <= chunk.length) {
           const newline = chunk.indexOf("\n", offset);
@@ -376,10 +468,24 @@ export async function runSingleAgent(
         }
       };
 
-      const onStdoutData = (data: Buffer | string) => processStdoutChunk(data);
+      const onStdoutData = (data: Buffer | string) => processStdoutChunk(
+        stdoutDecoder.write(typeof data === "string" ? Buffer.from(data, "utf8") : data),
+      );
       const onStderrData = (data: Buffer | string) => {
-        appendStderr(data.toString());
+        appendStderr(stderrDecoder.write(typeof data === "string" ? Buffer.from(data, "utf8") : data));
         updateActivity("receiving process diagnostics");
+      };
+
+      const flushDecoders = () => {
+        if (decodersFlushed) return;
+        decodersFlushed = true;
+        processStdoutChunk(stdoutDecoder.end());
+        const stderrRemainder = stderrDecoder.end();
+        if (stderrRemainder) {
+          appendStderr(stderrRemainder);
+          updateActivity("receiving process diagnostics");
+        }
+        if (!discardCurrentLine && buffer.trim()) processLine(buffer);
       };
 
       const cleanup = () => {
@@ -396,11 +502,12 @@ export async function runSingleAgent(
         proc.stderr?.destroy();
       };
 
-      const finish = (exitCode: number) => {
+      const finish = (exitCode: number, signalName?: NodeJS.Signals) => {
         if (settled) return;
+        flushDecoders();
         settled = true;
         cleanup();
-        resolve({ exitCode, reason: terminationReason });
+        resolve({ exitCode, reason: terminationReason, signal: signalName });
       };
 
       const terminate = (reason: "aborted" | "timed_out") => {
@@ -425,7 +532,7 @@ export async function runSingleAgent(
       };
 
       const abortChild = () => terminate("aborted");
-      timeoutTimer = setTimeout(() => terminate("timed_out"), currentResult.timeoutMs);
+      timeoutTimer = setTimeout(() => terminate("timed_out"), remainingTimeoutMs);
       heartbeat = onUpdate
         ? setInterval(() => {
             if (settled) return;
@@ -441,9 +548,8 @@ export async function runSingleAgent(
           }, HEARTBEAT_MS)
         : undefined;
 
-      const onClose = (code: number | null) => {
-        if (!discardCurrentLine && buffer.trim()) processLine(buffer);
-        finish(code ?? 0);
+      const onClose = (code: number | null, signalName: NodeJS.Signals | null) => {
+        finish(code ?? (signalName ? 1 : 0), signalName ?? undefined);
       };
       const onExit = (code: number | null) => {
         if (terminationReason) finish(code ?? 0);
@@ -474,22 +580,14 @@ export async function runSingleAgent(
       currentResult.status = "aborted";
       currentResult.stopReason = "aborted";
       currentResult.errorMessage = "Subagent was cancelled.";
+    } else if (outcome.signal) {
+      currentResult.status = "failed";
+      currentResult.errorMessage = `Subagent terminated by signal ${outcome.signal}.`;
     } else {
       currentResult.status = outcome.exitCode === 0 ? "completed" : "failed";
     }
     return currentResult;
   } finally {
-    if (tmpPromptPath)
-      try {
-        fs.unlinkSync(tmpPromptPath);
-      } catch {
-        /* ignore */
-      }
-    if (tmpPromptDir)
-      try {
-        fs.rmSync(tmpPromptDir, { recursive: true, force: true });
-      } catch {
-        /* ignore */
-      }
+    if (tmpPromptPath && tmpPromptDir) cleanupPromptTempFile({ dir: tmpPromptDir, filePath: tmpPromptPath });
   }
 }
