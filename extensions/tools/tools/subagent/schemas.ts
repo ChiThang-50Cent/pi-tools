@@ -2,6 +2,27 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 
+const MIN_TIMEOUT_MS = 1_000;
+const MAX_TIMEOUT_MS = 6 * 60 * 60 * 1_000;
+// Keep public text and compaction budgets bounded near the runner's 1 MiB capture cap.
+const MAX_PUBLIC_TEXT_CHARS = 1_000_000;
+const MAX_PARALLEL_TASKS = 8;
+
+const nonEmptyAgent = (description: string) => Type.String({ description, minLength: 1 });
+const taskText = (description: string) =>
+  Type.String({ description, minLength: 1, maxLength: MAX_PUBLIC_TEXT_CHARS });
+const contextText = (description: string) =>
+  Type.String({ description, maxLength: MAX_PUBLIC_TEXT_CHARS });
+const timeout = (description: string) =>
+  Type.Number({ description, minimum: MIN_TIMEOUT_MS, maximum: MAX_TIMEOUT_MS });
+const characterBudget = (description: string, defaultValue: number) =>
+  Type.Number({
+    description,
+    minimum: 1,
+    maximum: MAX_PUBLIC_TEXT_CHARS,
+    default: defaultValue,
+  });
+
 export const ReturnMode = StringEnum(["auto", "inline", "summary", "artifact"] as const, {
   description:
     'Return mode: "auto" uses heuristics (small → inline, large → artifact for single; summary/artifact for parallel; inline/artifact for chain). "inline" returns the full output. "summary" returns a compact preview. "artifact" writes full output to a temp file and returns the path.',
@@ -29,13 +50,12 @@ export const SpawnMode = StringEnum(["auto", "full", "lean"] as const, {
 });
 
 export const TaskItem = Type.Object({
-  agent: Type.String({ description: "Name of the agent to invoke" }),
-  task: Type.String({ description: "Task to delegate to the agent" }),
+  agent: nonEmptyAgent("Name of the agent to invoke"),
+  task: taskText("Task to delegate to the agent"),
   context: Type.Optional(
-    Type.String({
-      description:
-        "Optional handoff context from parent to child. Include concise notes: relevant files, symbols, findings, constraints. Overrides top-level context.",
-    }),
+    contextText(
+      "Optional handoff context from parent to child. Include concise notes: relevant files, symbols, findings, constraints. Overrides top-level context.",
+    ),
   ),
   cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
   model: Type.Optional(
@@ -47,18 +67,17 @@ export const TaskItem = Type.Object({
   thinking: Type.Optional(ThinkingLevel),
   spawnMode: Type.Optional(SpawnMode),
   timeoutMs: Type.Optional(
-    Type.Number({ description: "Wall-clock timeout in milliseconds for this task. Default: 900000 (15 minutes)." }),
+    timeout("Wall-clock timeout in milliseconds for this task. Default: 900000 (15 minutes)."),
   ),
 });
 
 export const ChainItem = Type.Object({
-  agent: Type.String({ description: "Name of the agent to invoke" }),
-  task: Type.String({ description: "Task with optional {previous} placeholder for prior output" }),
+  agent: nonEmptyAgent("Name of the agent to invoke"),
+  task: taskText("Task with optional {previous} placeholder for prior output"),
   context: Type.Optional(
-    Type.String({
-      description:
-        "Optional handoff context from parent to child. Include concise notes: relevant files, symbols, findings, constraints. Overrides top-level context.",
-    }),
+    contextText(
+      "Optional handoff context from parent to child. Include concise notes: relevant files, symbols, findings, constraints. Overrides top-level context.",
+    ),
   ),
   cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
   model: Type.Optional(
@@ -70,7 +89,7 @@ export const ChainItem = Type.Object({
   thinking: Type.Optional(ThinkingLevel),
   spawnMode: Type.Optional(SpawnMode),
   timeoutMs: Type.Optional(
-    Type.Number({ description: "Wall-clock timeout in milliseconds for this chain step. Default: 900000 (15 minutes)." }),
+    timeout("Wall-clock timeout in milliseconds for this chain step. Default: 900000 (15 minutes)."),
   ),
 });
 
@@ -80,19 +99,29 @@ export const AgentScopeSchema = StringEnum(["user", "project", "both"] as const,
 });
 
 export const SubagentParams = Type.Object({
-  agent: Type.Optional(Type.String({ description: "Name of the agent to invoke (for single mode)" })),
-  task: Type.Optional(Type.String({ description: "Task to delegate (for single mode)" })),
+  agent: Type.Optional(nonEmptyAgent("Name of the agent to invoke (for single mode)")),
+  task: Type.Optional(taskText("Task to delegate (for single mode)")),
   context: Type.Optional(
-    Type.String({
-      description:
-        "Optional handoff context for ALL subagents in this call (top-level). Include concise notes: relevant files, symbols, findings, constraints. Per-task/per-chain-step context overrides this value.",
-    }),
+    contextText(
+      "Optional handoff context for ALL subagents in this call (top-level). Include concise notes: relevant files, symbols, findings, constraints. Per-task/per-chain-step context overrides this value.",
+    ),
   ),
   contextMaxChars: Type.Optional(
-    Type.Number({ description: "Max characters for handoff context before truncation. Default: 2000.", default: 2000 }),
+    characterBudget("Max characters for handoff context before truncation. Default: 2000.", 2000),
   ),
-  tasks: Type.Optional(Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution" })),
-  chain: Type.Optional(Type.Array(ChainItem, { description: "Array of {agent, task} for sequential execution" })),
+  tasks: Type.Optional(
+    Type.Array(TaskItem, {
+      description: "Array of {agent, task} for parallel execution",
+      minItems: 1,
+      maxItems: MAX_PARALLEL_TASKS,
+    }),
+  ),
+  chain: Type.Optional(
+    Type.Array(ChainItem, {
+      description: "Array of {agent, task} for sequential execution",
+      minItems: 1,
+    }),
+  ),
   agentScope: Type.Optional(AgentScopeSchema),
   confirmProjectAgents: Type.Optional(
     Type.Boolean({ description: "Prompt before running project-local agents. Default: true.", default: true }),
@@ -106,24 +135,21 @@ export const SubagentParams = Type.Object({
   ),
   thinking: Type.Optional(ThinkingLevel),
   timeoutMs: Type.Optional(
-    Type.Number({ description: "Default wall-clock timeout in milliseconds for all subagent tasks. Default: 900000 (15 minutes). Per-task timeoutMs takes precedence." }),
+    timeout("Default wall-clock timeout in milliseconds for all subagent tasks. Default: 900000 (15 minutes). Per-task timeoutMs takes precedence."),
   ),
   returnMode: Type.Optional(ReturnMode),
   summaryMaxChars: Type.Optional(
-    Type.Number({ description: "Max characters for summary/compact preview. Default: 1200.", default: 1200 }),
+    characterBudget("Max characters for summary/compact preview. Default: 1200.", 1200),
   ),
   artifactThresholdChars: Type.Optional(
-    Type.Number({
-      description: "Output threshold in chars above which artifact mode kicks in (for auto mode). Default: 4000.",
-      default: 4000,
-    }),
+    characterBudget(
+      "Output threshold in chars above which artifact mode kicks in (for auto mode). Default: 4000.",
+      4000,
+    ),
   ),
   spawnMode: Type.Optional(SpawnMode),
   chainHandoffMode: Type.Optional(ChainHandoffMode),
   chainHandoffMaxChars: Type.Optional(
-    Type.Number({
-      description: "Max characters for compact chain handoff. Default: 4000.",
-      default: 4000,
-    }),
+    characterBudget("Max characters for compact chain handoff. Default: 4000.", 4000),
   ),
 });
