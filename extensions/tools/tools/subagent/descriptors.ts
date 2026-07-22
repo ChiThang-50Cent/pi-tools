@@ -17,7 +17,7 @@
 // cache-breaking / per-session content last.
 
 import type { AgentConfig } from "../../lib/agents.js";
-import { getAgentModelConfig, getEnabledModels } from "../../lib/config.js";
+import { getEnabledModels } from "../../lib/config.js";
 
 function formatTaskCategories(taskCategories: string[] | undefined): string | undefined {
   if (!taskCategories || taskCategories.length === 0) return undefined;
@@ -53,15 +53,14 @@ export function buildAgentDescription(agents: AgentConfig[]): string {
     // Cache-stable: agent list (sorted by name for deterministic output)
     lines.push("Available subagents:");
     for (const a of sorted) {
-      const agentCfg = getAgentModelConfig(a.name, a.model, a.thinking);
       let entry = `  - "${a.name}" (${a.source})`;
       const taskCategories = formatTaskCategories(a.taskCategories);
       if (taskCategories) {
         entry += ` [tasks: ${taskCategories}]`;
       }
-      if (agentCfg.model) {
-        entry += ` — prefer: ${agentCfg.model}`;
-        if (agentCfg.thinking) entry += ` (thinking: ${agentCfg.thinking})`;
+      if (a.model) {
+        entry += ` — fallback model: ${a.model}`;
+        if (a.thinking) entry += ` (thinking: ${a.thinking})`;
       }
       entry += `: ${a.description}`;
       lines.push(entry);
@@ -174,8 +173,8 @@ export function buildPromptGuidelines(agents: AgentConfig[]): string[] {
     "Use parallel mode only for independent subtasks; use chain mode only when step N genuinely depends on step N-1 (use {previous} placeholder).",
     "Output management: chain handoff is compact by default (truncated {previous}). Full results are always available in details.results regardless of returnMode.",
     "IMPORTANT: Always include provider prefix in model field. Example: `opencode-go/deepseek-v4-pro` not just `deepseek-v4-pro`.",
-    "For model selection: use the format `provider/modelId` (e.g. `opencode-go/deepseek-v4-pro`). Use cheaper/faster models for simple tasks, reasoning models for complex analysis. Omit the model field to inherit the agent's configured default or the parent's model.",
-    "Each agent has a default model configured in ~/.pi/tools.json (agents section). The model is auto-applied — you only need to override it when you want a different model for a specific task.",
+    "For model selection: use the format `provider/modelId` (e.g. `opencode-go/deepseek-v4-pro`). Use cheaper/faster models for simple tasks, reasoning models for complex analysis. Explicit per-call model overrides beat the active runtime model; without an override, use the active runtime model, then the agent frontmatter model, then Pi's child default.",
+    "For thinking selection: an explicit per-call thinking override beats the agent frontmatter thinking; if neither is set, use Pi's child default.",
     "Available thinking levels: off, minimal, low, medium, high, xhigh. Lower = faster/cheaper, higher = more thorough reasoning. Use higher levels for complex analysis, lower for simple tasks.",
   );
 

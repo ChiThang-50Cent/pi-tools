@@ -61,7 +61,7 @@ export const TaskItem = Type.Object({
   model: Type.Optional(
     Type.String({
       description:
-        "Override the agent's model. Use any model ID from the Available Models list in your system prompt. Omit to inherit the parent agent's model.",
+        "Per-call model override. Use any model ID from the Available Models list in your system prompt. Omit to use the active parent model, then the agent frontmatter model, then Pi's child default.",
     }),
   ),
   thinking: Type.Optional(ThinkingLevel),
@@ -83,7 +83,7 @@ export const ChainItem = Type.Object({
   model: Type.Optional(
     Type.String({
       description:
-        "Override the agent's model. Use any model ID from the Available Models list in your system prompt. Omit to inherit the parent agent's model.",
+        "Per-call model override. Use any model ID from the Available Models list in your system prompt. Omit to use the active parent model, then the agent frontmatter model, then Pi's child default.",
     }),
   ),
   thinking: Type.Optional(ThinkingLevel),
@@ -130,7 +130,7 @@ export const SubagentParams = Type.Object({
   model: Type.Optional(
     Type.String({
       description:
-        "Default model override for ALL subagents in this call. Use any model ID from the Available Models list in your system prompt. Per-task model takes precedence.",
+        "Per-call default model override for ALL subagents in this call. Use any model ID from the Available Models list in your system prompt. A per-task/per-chain-step model takes precedence.",
     }),
   ),
   thinking: Type.Optional(ThinkingLevel),

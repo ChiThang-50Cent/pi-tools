@@ -13,9 +13,9 @@ export interface AgentConfig {
 	name: string;
 	description: string;
 	tools?: string[];
-	/** Default model for this agent (overridable via config or tool call) */
+	/** Fallback model for this agent from frontmatter (overridable via a tool call) */
 	model?: string;
-	/** Default thinking level for this agent */
+	/** Fallback thinking level for this agent from frontmatter */
 	thinking?: string;
 	/** Task categories this agent is optimized for. Helps the parent LLM choose the right agent + model. */
 	taskCategories?: string[];

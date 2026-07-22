@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   discoverAgents: vi.fn(),
   loadConfig: vi.fn(() => ({})),
-  getAgentModelConfig: vi.fn(() => ({})),
   getEnabledModels: vi.fn(() => []),
   runSingleAgent: vi.fn(),
 }));
@@ -12,7 +11,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../lib/agents.js", () => ({ discoverAgents: mocks.discoverAgents }));
 vi.mock("../lib/config.js", () => ({
   loadConfig: mocks.loadConfig,
-  getAgentModelConfig: mocks.getAgentModelConfig,
   getEnabledModels: mocks.getEnabledModels,
 }));
 vi.mock("../tools/subagent/runner.js", () => ({ runSingleAgent: mocks.runSingleAgent }));

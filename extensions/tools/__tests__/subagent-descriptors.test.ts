@@ -68,6 +68,10 @@ describe("buildAgentDescription routing-policy", () => {
     expect(desc).toContain('general: prefer spawnMode:"full"');
     expect(desc).toContain('returnMode:"summary" for orchestration, "artifact" for long outputs');
   });
+
+  it("does not describe tools.json as an agent model source", () => {
+    expect(desc).not.toContain("tools.json");
+  });
 });
 
 // ─── buildPromptGuidelines routing policy ───
@@ -151,6 +155,11 @@ describe("buildPromptGuidelines routing-policy", () => {
       (g) => g.includes("inline") && g.includes("raw") || g.includes("full raw"),
     );
     expect(hasInlineGuideline).toBe(true);
+  });
+
+  it("documents runtime and frontmatter model precedence without tools.json", () => {
+    expect(guidelines.some((g) => g.includes("active runtime model") && g.includes("frontmatter model"))).toBe(true);
+    expect(guidelines.some((g) => g.includes("tools.json"))).toBe(false);
   });
 });
 

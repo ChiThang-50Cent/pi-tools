@@ -2,8 +2,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { AgentModelConfig } from "./types.js";
-
 const CONFIG_PATH = join(homedir(), ".pi", "tools.json");
 const SETTINGS_PATH = join(homedir(), ".pi", "agent", "settings.json");
 
@@ -33,8 +31,6 @@ export interface ToolsConfig {
   searxng?: string;
   /** Optional local-only search broker settings. */
   search?: SearchConfig;
-  /** Per-agent model configuration. Key = agent name, value = model config. */
-  agents?: Record<string, AgentModelConfig>;
   /** Allowlist: if non-empty, ONLY these tools are registered (deny is ignored) */
   allow?: string[];
   /** Denylist: tools to exclude when allow is empty/not set */
@@ -86,16 +82,6 @@ export function getSearXNGUrl(): string {
 /** Return the optional search settings, including the broker URL. */
 export function getSearchConfig(): SearchConfig {
   return { ...(getConfig().search ?? {}) };
-}
-
-/** Get the merged agent model config: tools.json config → agent frontmatter (for model & thinking fallthrough) */
-export function getAgentModelConfig(agentName: string, agentModel?: string, agentThinking?: string): AgentModelConfig {
-  const config = getConfig().agents?.[agentName] ?? {};
-  return {
-    model: config.model ?? agentModel,
-    thinking: config.thinking ?? agentThinking,
-    tasks: config.tasks,
-  };
 }
 
 let _settingsCache: PiSettings | null = null;

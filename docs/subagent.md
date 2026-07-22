@@ -67,8 +67,8 @@ Do not delegate a known file read, a simple grep/listing, or a tiny follow-up wh
 | `context` | — | Concise parent findings; per-task/per-step `context` overrides it. |
 | `contextMaxChars` | `2000` | Deterministic context compaction budget (1–1,000,000). |
 | `cwd` | current directory | Child working directory. |
-| `model` | active parent model | Override in `provider/modelId` form; task/tool/config/agent overrides take precedence. |
-| `thinking` | inherited | `off` through `xhigh`. |
+| `model` | active parent model | Explicit per-call override > active runtime model > agent frontmatter model > Pi child default. Use `provider/modelId` form. |
+| `thinking` | agent frontmatter thinking | Explicit per-call override > agent frontmatter thinking > Pi child default. Values: `off` through `xhigh`. |
 | `timeoutMs` | `900000` | Total wall-clock timeout, including prompt setup (1,000–21,600,000 ms). Per-task/per-step takes precedence. |
 | `spawnMode` | `auto` | Child bootstrap mode. |
 | `returnMode` | `auto` | Parent-facing output mode. |
@@ -104,7 +104,7 @@ The runner emits initial status, tool activity, and a five-second heartbeat whil
 
 ## Custom agents
 
-Create agent markdown files in `~/.pi/agents/` or `.pi/agents/`:
+Create agent markdown files in `~/.pi/agents/` or `.pi/agents/`. `model` and `thinking` are frontmatter fallbacks; they are not read from `~/.pi/tools.json`:
 
 ```markdown
 ---

@@ -8,7 +8,6 @@ import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
 import { withFileMutationQueue, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AgentConfig } from "../../lib/agents.js";
-import { getAgentModelConfig } from "../../lib/config.js";
 import { getPiInvocation } from "../../lib/invoke.js";
 import { getFinalOutput } from "./types.js";
 import type { SingleResult, SubagentDetails } from "./types.js";
@@ -164,12 +163,12 @@ export async function runSingleAgent(
   const spawnPlan = buildSpawnPlan(agent, spawnModeOverride);
   if (spawnPlan.flags.length > 0) args.push(...spawnPlan.flags);
 
-  // Model resolution: task override > tool-level override > tools.json config > agent frontmatter > inherit
-  const agentCfg = getAgentModelConfig(agentName, agent.model, agent.thinking);
+  // Model resolution: explicit per-call override > active runtime model > agent frontmatter > Pi child default
   const rawModel = modelOverride
-    ?? agentCfg.model
-    ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined);
-  const resolvedThinking = thinkingOverride ?? agentCfg.thinking;
+    ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined)
+    ?? agent.model;
+  // Thinking resolution: explicit per-call override > agent frontmatter > Pi child default
+  const resolvedThinking = thinkingOverride ?? agent.thinking;
   // Resolve model to provider/modelId format
   const resolvedModel = rawModel ? resolveModelString(rawModel, ctx) : undefined;
   if (resolvedModel) {

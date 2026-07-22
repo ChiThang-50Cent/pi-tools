@@ -12,7 +12,7 @@ Discovers and loads agent configurations from three sources: **built-in**, **use
 |--------|------|-------------|
 | `AgentScope` | type | `"user"` \| `"project"` \| `"both"` — agent search scope |
 | `AgentSource` | type | `"builtin"` \| `"user"` \| `"project"` — agent origin |
-| `AgentConfig` | interface | Agent config structure: name, description, tools, model, thinking, task categories, system prompt |
+| `AgentConfig` | interface | Agent config structure: name, description, tools, frontmatter model/thinking, task categories, system prompt |
 | `AgentDiscoveryResult` | interface | Return value: list of agents + project agents directory path |
 | `discoverAgents` | function | **(main)** Scans user/project directories, loads `.md` files (with frontmatter), merges with built-in agents by scope. Priority: built-in < user < project |
 
@@ -35,7 +35,6 @@ Reads and caches configuration from `~/.pi/tools.json`. Provides convenience get
 | `loadConfig` | function | Reads & parses `tools.json` (no cache) |
 | `getSearXNGUrl` | function | Returns SearXNG URL (default `http://127.0.0.1:8080`) |
 | `getSearchConfig` | function | Returns optional broker/queue/cache settings |
-| `getAgentModelConfig` | function | Merges agent model/thinking config from `tools.json` + agent frontmatter |
 | `isToolAllowed` | function | Checks whether a tool is allowed to register: allowlist > denylist > all |
 
 ---
@@ -110,14 +109,6 @@ Stores search/fetch results for later retrieval via the `get_search_content` too
 | Export | Type | Description |
 |--------|------|-------------|
 | `truncateOutput` | function | Truncates string to byte limit, preserving UTF-8. If truncated: appends `[Output truncated: N bytes omitted...]` line, returns with `truncated` flag |
-
----
-
-## 📐 `types.ts` — Shared Types
-
-| Export | Type | Description |
-|--------|------|-------------|
-| `AgentModelConfig` | interface | `{model?, thinking?, tasks?}` — default model configuration per agent |
 
 ---
 

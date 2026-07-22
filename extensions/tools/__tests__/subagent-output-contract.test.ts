@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
   discoverAgents: vi.fn(),
   loadConfig: vi.fn(() => ({})),
   getEnabledModels: vi.fn(() => []),
-  getAgentModelConfig: vi.fn(() => ({})),
   runSingleAgent: vi.fn(),
 }));
 
@@ -14,7 +13,6 @@ vi.mock("../lib/agents.js", () => ({ discoverAgents: mocks.discoverAgents }));
 vi.mock("../lib/config.js", () => ({
   loadConfig: mocks.loadConfig,
   getEnabledModels: mocks.getEnabledModels,
-  getAgentModelConfig: mocks.getAgentModelConfig,
 }));
 vi.mock("../tools/subagent/runner.js", () => ({ runSingleAgent: mocks.runSingleAgent }));
 vi.mock("../tools/subagent/render.js", () => ({ renderCall: vi.fn(), renderResult: vi.fn() }));

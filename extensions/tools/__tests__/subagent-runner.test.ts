@@ -13,9 +13,6 @@ vi.mock("node:child_process", () => ({ spawn: spawnMock, execFile: execFileMock 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   withFileMutationQueue: async (_path: string, fn: () => Promise<void>) => fn(),
 }));
-vi.mock("../lib/config.js", () => ({
-  getAgentModelConfig: () => ({}),
-}));
 vi.mock("../lib/invoke.js", () => ({
   getPiInvocation: getPiInvocationMock,
 }));
@@ -50,6 +47,7 @@ function run(
     onUpdate?: (result: SingleResult) => void;
     model?: { provider: string; id: string };
     modelOverride?: string;
+    thinkingOverride?: string;
   } = {},
   runAgent: AgentConfig = agent,
 ): Promise<SingleResult> {
@@ -68,7 +66,7 @@ function run(
     makeDetails,
     { modelRegistry: { getAll: () => [] }, model: options.model } as any,
     options.modelOverride,
-    undefined,
+    options.thinkingOverride,
     undefined,
     undefined,
     undefined,
@@ -237,9 +235,10 @@ describe("runSingleAgent lifecycle", () => {
     }
   });
 
-  it("inherits the active parent model when no model override is configured", async () => {
+  it("prefers the active parent model over the agent frontmatter model", async () => {
     const child = new FakeChild();
-    const resultPromise = run(child, { model: { provider: "parent-provider", id: "parent-model" } });
+    const frontmatterAgent = { ...agent, model: "frontmatter-provider/frontmatter-model" };
+    const resultPromise = run(child, { model: { provider: "parent-provider", id: "parent-model" } }, frontmatterAgent);
     child.emit("close", 0);
 
     await resultPromise;
@@ -247,14 +246,16 @@ describe("runSingleAgent lifecycle", () => {
       "--model",
       "parent-provider/parent-model",
     ]));
+    expect(getPiInvocationMock.mock.calls[0]?.[0]).not.toContain("frontmatter-provider/frontmatter-model");
   });
 
-  it("preserves an explicit model override over the active parent model", async () => {
+  it("prefers an explicit per-call model override over the active parent model", async () => {
     const child = new FakeChild();
+    const frontmatterAgent = { ...agent, model: "frontmatter-provider/frontmatter-model" };
     const resultPromise = run(child, {
       model: { provider: "parent-provider", id: "parent-model" },
       modelOverride: "override-provider/override-model",
-    });
+    }, frontmatterAgent);
     child.emit("close", 0);
 
     await resultPromise;
@@ -263,6 +264,28 @@ describe("runSingleAgent lifecycle", () => {
       "override-provider/override-model",
     ]));
     expect(getPiInvocationMock.mock.calls[0]?.[0]).not.toContain("parent-provider/parent-model");
+    expect(getPiInvocationMock.mock.calls[0]?.[0]).not.toContain("frontmatter-provider/frontmatter-model");
+  });
+
+  it("uses agent frontmatter thinking when no per-call override is provided", async () => {
+    const child = new FakeChild();
+    const frontmatterAgent = { ...agent, thinking: "high" };
+    const resultPromise = run(child, {}, frontmatterAgent);
+    child.emit("close", 0);
+
+    await resultPromise;
+    expect(getPiInvocationMock.mock.calls[0]?.[0]).toEqual(expect.arrayContaining(["--thinking", "high"]));
+  });
+
+  it("prefers a per-call thinking override over agent frontmatter", async () => {
+    const child = new FakeChild();
+    const frontmatterAgent = { ...agent, thinking: "high" };
+    const resultPromise = run(child, { thinkingOverride: "low" }, frontmatterAgent);
+    child.emit("close", 0);
+
+    await resultPromise;
+    expect(getPiInvocationMock.mock.calls[0]?.[0]).toEqual(expect.arrayContaining(["--thinking", "low"]));
+    expect(getPiInvocationMock.mock.calls[0]?.[0]).not.toContain("high");
   });
 
   it("streams split UTF-8 output without replacement characters", async () => {
