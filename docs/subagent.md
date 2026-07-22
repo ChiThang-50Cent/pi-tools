@@ -65,11 +65,11 @@ Do not delegate a known file read, a simple grep/listing, or a tiny follow-up wh
 |---|---|---|
 | `agent` / `tasks` / `chain` | — | Select one execution mode. |
 | `context` | — | Concise parent findings; per-task/per-step `context` overrides it. |
-| `contextMaxChars` | `2000` | Deterministic context compaction budget. |
+| `contextMaxChars` | `2000` | Deterministic context compaction budget (1–1,000,000). |
 | `cwd` | current directory | Child working directory. |
-| `model` | agent/default model | Override in `provider/modelId` form. |
+| `model` | active parent model | Override in `provider/modelId` form; task/tool/config/agent overrides take precedence. |
 | `thinking` | inherited | `off` through `xhigh`. |
-| `timeoutMs` | `900000` | Wall-clock timeout. Per-task/per-step takes precedence. |
+| `timeoutMs` | `900000` | Total wall-clock timeout, including prompt setup (1,000–21,600,000 ms). Per-task/per-step takes precedence. |
 | `spawnMode` | `auto` | Child bootstrap mode. |
 | `returnMode` | `auto` | Parent-facing output mode. |
 
@@ -100,7 +100,7 @@ Use `lean` for focused exploration; use `full` when the task depends on extensio
 
 ## Lifecycle and cancellation
 
-The runner emits initial status, tool activity, and a five-second heartbeat while a child runs. Default timeout is 15 minutes. On timeout or parent cancellation it terminates the child process group, force-settles after the kill grace period, and returns a controlled failed result instead of leaving the caller waiting. Stdout buffering, stored transcript messages, and stderr are each capped at 1 MiB; truncation is recorded in diagnostics.
+The runner emits initial status, tool activity, and a five-second heartbeat while a child runs. Default timeout is 15 minutes and covers prompt setup plus execution. On timeout or parent cancellation it terminates the child process group (using `taskkill /T` on Windows), force-settles after the kill grace period, and returns a controlled failed result instead of leaving the caller waiting. Stdout buffering, stored transcript messages, and stderr are each capped at 1 MiB; truncation is recorded in diagnostics.
 
 ## Custom agents
 

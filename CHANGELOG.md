@@ -20,6 +20,8 @@
 - Added deterministic chain handoff compaction with `chainHandoffMode` and `chainHandoffMaxChars`.
 - Added spawn planning with `spawnMode` support at top-level, parallel task, and chain step scope.
 - Added parent→child `context` and `contextMaxChars` handoff support.
+- Subagents now inherit the active parent model when no task, tool, config, or agent model is specified.
+- Subagent parameter schemas now reject empty tasks/agents and out-of-range timeouts, budgets, and parallel task counts.
 - Strengthened routing guidance in subagent descriptors to reduce unnecessary delegation.
 - Stabilized descriptor/config ordering to improve prompt-cache friendliness.
 - Updated `README.md` and `package.json` for the benchmark harness and new subagent options.
@@ -27,7 +29,9 @@
 
 ### Fixed
 - Parse complete successful broker responses before limiting diagnostic error bodies, preventing large search responses from incorrectly rendering as zero results.
-- Subagent lifecycle now provides progress heartbeats, bounded wall-clock timeouts, process-group cancellation, force-settling after cancellation, and capped stdout/transcript/stderr capture.
+- Subagent lifecycle now provides progress heartbeats, bounded total wall-clock timeouts (including prompt setup), process-tree cancellation, force-settling after cancellation, and capped stdout/transcript/stderr capture.
+- Subagent return modes now render the parent-facing summary/artifact content consistently; failed chains also follow their selected return policy.
+- Repeated subagent artifacts no longer overwrite each other.
 - Headless requests for project-local agents now fail closed unless `confirmProjectAgents: false` explicitly opts in.
 
 ### Removed
